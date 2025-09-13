@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Claudio — minimal audio (auto self-test)</title>
+  <title>Claudio — minimal audio (self-test)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     :root { --bg:#0a0a0a; --card:#171717; --text:#e5e7eb; --muted:#9ca3af; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
@@ -25,7 +25,7 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>Claudio — minimal audio (auto self-test)</h1>
+    <h1>Claudio — minimal audio (self-test)</h1>
     <div id="status" class="pill">socket: connecting…</div>
 
     <div class="card">
@@ -86,12 +86,12 @@
       return ctx;
     }
 
-    // ===== Pilot track (-50dB noise) to keep m-line active =====
+    // ===== Pilot track (-50 dB) keeps m-line active =====
     async function ensurePilotTrack(){
       if (pilotTrack) return pilotTrack;
       const ac = await ctxReady();
       const noise = ac.createScriptProcessor(256, 1, 1);
-      const gain = ac.createGain(); gain.gain.value = 0.003; // about -50 dBFS
+      const gain = ac.createGain(); gain.gain.value = 0.003;
       const dest = ac.createMediaStreamDestination();
       noise.onaudioprocess = (e) => {
         const out = e.outputBuffer.getChannelData(0);
@@ -244,14 +244,12 @@
       const pc=new RTCPeerConnection(rtcConfig); peers.set(peerId, pc);
 
       const tx = pc.addTransceiver('audio', { direction:'sendrecv' });
-      // force Opus if supported
       try{
         const caps = RTCRtpSender.getCapabilities('audio');
         const opus = caps.codecs.find(c=>/opus/i.test(c.mimeType));
         if (tx.setCodecPreferences && opus) tx.setCodecPreferences([opus]);
       }catch{}
 
-      // attach pilot so m-line is live
       const pilot = await ensurePilotTrack();
       try{ await tx.sender.replaceTrack(pilot); }catch{}
       senders.set(peerId, tx.sender);
@@ -265,7 +263,6 @@
         a.srcObject = ev.streams[0];
         const outId = el('outDev').value;
         if (a.setSinkId && outId){ a.setSinkId(outId).catch(()=>{}); }
-        // feed analyser to display incoming VU
         ctxReady().then(ac=>{
           try{ const src = ac.createMediaStreamSource(ev.streams[0]); if (!analyser){ analyser = ac.createAnalyser(); analyser.fftSize=1024; inBuf = new Float32Array(analyser.fftSize); startVU(); } src.connect(analyser); }catch(_){}
         });
@@ -295,7 +292,6 @@
     // ===== Self-test =====
     function autoSelfTestIfReady(users){
       if ((users||[]).length >= 2) {
-        // First user in the room triggers test once
         const amFirst = (users[0]?.id === socket.id);
         if (amFirst) runSelfTest();
       }
@@ -303,9 +299,7 @@
 
     async function runSelfTest(){
       setSelfTest('self-test: running…','warn');
-      // broadcast to listeners to measure
       socket.emit('roomcast', { roomId, type: 'selftest:start', payload: { burstMs: 700 } });
-      // send a 1 kHz burst
       const ac = await ctxReady();
       const osc=ac.createOscillator(), g=ac.createGain();
       osc.frequency.value=1000; g.gain.value=0.25;
@@ -313,12 +307,10 @@
       osc.connect(g).connect(dest); osc.start();
 
       const burstTrack = dest.stream.getAudioTracks()[0];
-      // swap onto all senders for the burst
       const swaps = [];
       senders.forEach(sender => swaps.push(sender.replaceTrack(burstTrack)));
       await Promise.allSettled(swaps);
 
-      // stop burst after window, return to pilot
       setTimeout(async ()=>{
         try{ burstTrack.stop(); }catch{}
         const pilot = await ensurePilotTrack();
@@ -328,11 +320,9 @@
       }, 700);
     }
 
-    // listener side: measure incoming level during burst and report
     async function runListenerCheck(winMs){
       const ac = await ctxReady();
       if (!analyser) { analyser = ac.createAnalyser(); analyser.fftSize=1024; inBuf = new Float32Array(analyser.fftSize); }
-      // sample RMS for 'winMs' and decide
       const start = performance.now();
       let maxDb = -120;
       const step = () => {
@@ -341,7 +331,6 @@
         const rms=Math.sqrt(sum/inBuf.length); const db = 20*Math.log10(rms||1e-8);
         if (db > maxDb) maxDb = db;
         if (performance.now()-start < winMs+200) return requestAnimationFrame(step);
-        // threshold: louder than -35 dBFS at any point during burst
         const ok = maxDb > -35;
         socket.emit('roomcast', { roomId, type:'selftest:result', payload:{ ok, maxDb } });
       };
