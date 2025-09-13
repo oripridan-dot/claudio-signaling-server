@@ -50,3 +50,20 @@
     "cors": "^2.8.5"
   }
 }
+{
+  "name": "claudio-signaling-server",
+  "version": "5.4.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "postinstall": "echo \"nothing to build\""
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
+
