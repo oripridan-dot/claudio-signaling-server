@@ -7,25 +7,24 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <style>
-    :root {
+    :root{
       --primary:#3b82f6; --primary-light:rgba(59,130,246,.2); --primary-border:rgba(59,130,246,.4);
       --success:#22c55e; --success-light:rgba(34,197,94,.15); --success-border:rgba(34,197,94,.3);
       --danger:#ef4444; --danger-light:rgba(239,68,68,.15); --danger-border:rgba(239,68,68,.4);
       --warning:#f59e0b;
       --bg-primary:#0a0a0a; --bg-secondary:rgba(20,20,20,.8); --bg-input:rgba(40,40,40,.8);
       --border-primary:rgba(40,40,40,.8); --border-secondary:rgba(60,60,60,.8);
-      --text-primary:#fff; --text-secondary:#e0e0e0; --text-muted:#888; --text-disabled:#666;
+      --text-primary:#fff; --text-secondary:#e0e0e0; --text-muted:#a1a1aa; --text-disabled:#666;
     }
     *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
-      background:var(--bg-primary);color:var(--text-secondary);min-height:100vh;line-height:1.4;overflow-x:hidden;
-      -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-    .container{max-width:600px;margin:0 auto;padding:20px 20px 100px}
-    .header{text-align:center;margin-bottom:30px;padding:20px 0}
-    .logo{font-size:clamp(2rem,6vw,2.8rem);font-weight:200;color:var(--text-primary);margin-bottom:8px;letter-spacing:-.02em;
-      background:linear-gradient(135deg,#3b82f6,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-    .tagline{font-size:.9rem;color:var(--text-muted)}
-    .status-bar{display:flex;align-items:center;justify-content:center;padding:14px 20px;margin-bottom:24px;border-radius:12px;
+      background:var(--bg-primary);color:var(--text-secondary);min-height:100vh;line-height:1.4;overflow-x:hidden}
+    .container{max-width:600px;margin:0 auto;padding:20px 20px 120px}
+    .header{text-align:center;margin-bottom:24px}
+    .logo{font-size:clamp(2rem,6vw,2.8rem);font-weight:200;color:var(--text-primary);letter-spacing:-.02em;
+      background:linear-gradient(135deg,#3b82f6,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .tagline{font-size:.9rem;color:var(--text-muted);margin-top:6px}
+    .status-bar{display:flex;align-items:center;justify-content:center;padding:12px 16px;margin:18px 0;border-radius:12px;
       font-size:.85rem;font-weight:500;backdrop-filter:blur(10px);transition:all .3s}
     .status-connected{background:var(--success-light);border:1px solid var(--success-border);color:var(--success)}
     .status-disconnected{background:var(--danger-light);border:1px solid var(--danger-border);color:var(--danger)}
@@ -33,39 +32,31 @@
     .status-dot{width:8px;height:8px;border-radius:50%;margin-right:10px;background:currentColor;animation:pulse 2s infinite}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
     .card{background:var(--bg-secondary);backdrop-filter:blur(15px);border:1px solid var(--border-primary);
-      border-radius:16px;padding:24px;margin-bottom:20px;transition:all .2s}
-    .card:hover{border-color:var(--border-secondary)}
-    .card-title{font-size:1.05rem;font-weight:600;color:var(--text-primary);margin-bottom:18px;display:flex;align-items:center;gap:10px}
-    .icon{width:18px;height:18px;opacity:.8;flex-shrink:0}
-    .input-group{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}
+      border-radius:16px;padding:20px;margin:12px 0}
+    .card-title{font-size:1.05rem;font-weight:600;color:var(--text-primary);margin-bottom:12px;display:flex;align-items:center;gap:10px}
+    .input-group{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
     .input-full{grid-column:1/-1}
-    input,select{background:var(--bg-input);border:1px solid var(--border-secondary);border-radius:10px;padding:14px 16px;
-      color:var(--text-secondary);font-size:.9rem;transition:all .2s;width:100%;font-family:inherit}
-    input:focus,select:focus{outline:none;border-color:var(--primary);background:rgba(50,50,50,.8);box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+    input,select{background:var(--bg-input);border:1px solid var(--border-secondary);border-radius:10px;padding:12px 14px;
+      color:var(--text-secondary);font-size:.9rem;width:100%}
+    input:focus,select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(59,130,246,.1)}
     input::placeholder{color:var(--text-disabled)}
-    .button-group{display:flex;gap:12px;flex-wrap:wrap}
-    .btn{background:var(--primary-light);border:1px solid var(--primary-border);color:var(--primary);padding:14px 20px;border-radius:10px;
-      font-size:.85rem;font-weight:500;cursor:pointer;transition:all .2s;flex:1;min-width:120px;display:flex;align-items:center;justify-content:center;gap:8px}
-    .btn:hover:not(:disabled){background:rgba(59,130,246,.3);border-color:rgba(59,130,246,.6);transform:translateY(-1px)}
-    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .button-group{display:flex;gap:10px;flex-wrap:wrap}
+    .btn{background:var(--primary-light);border:1px solid var(--primary-border);color:var(--primary);padding:12px 16px;border-radius:10px;
+      font-size:.85rem;font-weight:500;cursor:pointer;flex:1;min-width:120px;text-align:center}
+    .btn:hover{background:rgba(59,130,246,.3);border-color:rgba(59,130,246,.6)}
     .btn-secondary{background:rgba(107,114,128,.2);border-color:rgba(107,114,128,.4);color:#9ca3af}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .kv{display:flex;gap:8px;align-items:center}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace}
+    .meter-wrap{position:relative;height:18px;background:rgba(60,60,60,.5);border-radius:9px;overflow:hidden;border:1px solid rgba(80,80,80,.7)}
+    .meter-fill{height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#f59e0b,#ef4444);transition:width .08s}
+    .meter-needle{position:absolute;top:0;bottom:0;width:2px;background:#fff;opacity:.7}
+    canvas{width:100%;max-width:560px;height:100px;background:rgba(40,40,40,.6);border-radius:12px;border:1px solid rgba(70,70,70,.7)}
     .floating-controls{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:12px;z-index:1000}
     .btn-floating{width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;
-      transition:all .3s;box-shadow:0 4px 20px rgba(0,0,0,.3);backdrop-filter:blur(10px)}
-    .btn-talkback{background:var(--danger-light);border:2px solid var(--danger-border);color:var(--danger)}
-    .btn-talkback.active{background:rgba(239,68,68,.4);border-color:rgba(239,68,68,.8);animation:recording-pulse 1.5s infinite}
-    @keyframes recording-pulse{0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.3),0 0 0 0 rgba(239,68,68,.4)}50%{box-shadow:0 4px 20px rgba(0,0,0,.3),0 0 0 10px rgba(239,68,68,0)}}
-    .room-info{font-size:.9rem;color:#b0b0b0;padding:12px 0}
-    .user-list{display:grid;gap:10px;margin-top:16px}
-    .user-item{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:rgba(50,50,50,.5);
-      border-radius:8px;border-left:3px solid var(--primary)}
-    .user-name{font-size:.9rem;color:var(--text-secondary);font-weight:500}
-    .user-instrument{font-size:.75rem;color:var(--text-muted)}
-    .latency-display{display:flex;align-items:center;justify-content:space-between;margin-top:16px;flex-wrap:wrap;gap:12px}
-    .latency-value{font-weight:600;font-size:1rem;padding:8px 12px;background:rgba(50,50,50,.5);border-radius:6px;min-width:60px;text-align:center}
-    .loading-spinner{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.3);border-top:2px solid currentColor;border-radius:50%;animation:spin 1s linear infinite}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    @media (max-width:768px){.container{padding:12px 12px 80px}.header{margin-bottom:20px}.card{padding:20px}}
+      box-shadow:0 4px 20px rgba(0,0,0,.35);background:var(--danger-light);border:2px solid var(--danger-border);color:var(--danger);font-size:22px}
+    .btn-floating.active{background:rgba(239,68,68,.4);border-color:rgba(239,68,68,.8)}
+    @media (max-width:768px){.container{padding:12px 12px 120px}.input-group{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -76,307 +67,462 @@
     </div>
 
     <div id="connectionStatus" class="status-bar status-connecting">
-      <div class="status-dot"></div><span class="loading-spinner"></span>&nbsp;&nbsp;connecting...
+      <div class="status-dot"></div><span class="mono">connecting…</span>
     </div>
 
+    <!-- Join -->
     <div class="card">
-      <div class="card-title">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 12l2 2 4-4"/><path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3"/>
-        </svg> join session
-      </div>
+      <div class="card-title">join session</div>
       <div class="input-group">
-        <input id="roomId" placeholder="room code" value="STUDIO1" maxlength="10" autocomplete="off" autocapitalize="characters">
+        <input id="roomId" placeholder="room code" value="STUDIO1" maxlength="10" autocapitalize="characters">
         <input id="username" placeholder="your name" value="musician" maxlength="20" autocomplete="name">
       </div>
       <div class="input-group">
-        <select id="instrument" class="input-full" aria-label="Select your instrument">
-          <option value="guitar">🎸 guitar</option><option value="bass">🎸 bass</option><option value="drums">🥁 drums</option>
-          <option value="piano">🎹 piano</option><option value="vocals">🎤 vocals</option><option value="violin">🎻 violin</option>
-          <option value="saxophone">🎷 saxophone</option><option value="other">🎵 other</option>
+        <select id="instrument" class="input-full">
+          <option value="guitar">🎸 guitar</option>
+          <option value="bass">🎸 bass</option>
+          <option value="drums">🥁 drums</option>
+          <option value="piano">🎹 piano</option>
+          <option value="vocals">🎤 vocals</option>
+          <option value="violin">🎻 violin</option>
+          <option value="saxophone">🎷 saxophone</option>
+          <option value="other">🎵 other</option>
         </select>
       </div>
       <div class="button-group">
-        <button class="btn" onclick="joinRoom()" id="joinBtn">join</button>
-        <button class="btn btn-secondary" onclick="createRoom()" id="createBtn">create</button>
+        <button class="btn" id="joinBtn" onclick="joinRoom()">join</button>
+        <button class="btn btn-secondary" id="createBtn" onclick="createRoom()">create</button>
       </div>
     </div>
 
+    <!-- Session -->
     <div class="card">
-      <div class="card-title">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-          <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
-        </svg> session
-      </div>
-      <div id="roomInfo" class="room-info">not in a session</div>
-      <div id="userList" class="user-list" role="list" aria-label="Connected users"></div>
+      <div class="card-title">session</div>
+      <div id="roomInfo" class="mono" style="margin-bottom:8px;">not in a session</div>
+      <div id="userList"></div>
     </div>
 
+    <!-- Connection -->
     <div class="card">
-      <div class="card-title">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
-        </svg> connection
+      <div class="card-title">connection</div>
+      <div class="row" style="margin-bottom:10px;">
+        <button class="btn btn-secondary" id="latencyBtn" onclick="testLatency()">test latency</button>
+        <div id="latencyResult" class="mono">-</div>
       </div>
-      <div class="latency-display">
-        <button class="btn btn-secondary" onclick="testLatency()" id="latencyBtn">test latency</button>
-        <div id="latencyResult" class="latency-value">-</div>
+      <div class="row">
+        <div class="kv mono">transport: <span id="transportInfo">-</span></div>
+      </div>
+    </div>
+
+    <!-- Session Timer -->
+    <div class="card">
+      <div class="card-title">session time</div>
+      <div class="row" style="margin-bottom:8px;">
+        <div class="kv mono">elapsed: <span id="elapsed">00:00</span></div>
+        <div class="kv mono">remaining: <span id="remaining">60:00</span></div>
+      </div>
+      <div class="row">
+        <input id="durationInput" type="number" min="5" max="240" value="60" style="width:110px" />
+        <button class="btn btn-secondary" onclick="setDuration()">set minutes</button>
+        <button class="btn" onclick="resetTimer()">reset</button>
+        <button class="btn" onclick="toggleTimer()" id="timerToggle">start</button>
+      </div>
+    </div>
+
+    <!-- Tuner + VU -->
+    <div class="card">
+      <div class="card-title">tuner & level</div>
+      <div class="row" style="margin-bottom:8px;">
+        <div class="kv mono">note: <span id="note">--</span></div>
+        <div class="kv mono">cents: <span id="cents">--</span></div>
+        <div class="kv mono">freq: <span id="freq">--</span></div>
+      </div>
+      <div class="meter-wrap" style="margin-bottom:8px;">
+        <div id="vuFill" class="meter-fill"></div>
+        <div id="vuNeedle" class="meter-needle" style="left:0%"></div>
+      </div>
+      <canvas id="scope" height="110"></canvas>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn" onclick="toggleTuner()" id="tunerBtn">enable tuner</button>
+        <div class="kv mono">target dB: <input id="targetDb" type="number" value="-18" style="width:70px;margin-left:6px"> </div>
       </div>
     </div>
   </div>
 
-  <!-- Floating Controls -->
+  <!-- PTT -->
   <div class="floating-controls">
-    <button class="btn-floating btn-talkback" id="talkbackBtn"
+    <button class="btn-floating" id="talkbackBtn"
       onmousedown="startTalkback()" onmouseup="stopTalkback()"
-      ontouchstart="startTalkback(event)" ontouchend="stopTalkback(event)" aria-label="Hold to talk">
-      🎙️
-    </button>
+      ontouchstart="startTalkback(event)" ontouchend="stopTalkback(event)" aria-label="Hold to talk">🎙️</button>
   </div>
 
-  <!-- Socket.IO client (same origin) -->
+  <!-- Socket.IO client -->
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    // ======== Global State ========
-    let socket = null;
-    let currentRoom = null;
-    let isTalking = false;
+  /*** ====== Signaling / WebRTC ====== ***/
+  let socket=null, currentRoom=null, isTalking=false;
 
-    // Peer state
-    const peers = new Map();            // peerId -> RTCPeerConnection
-    const audioSenders = new Map();     // peerId -> RTCRtpSender (audio)
-    let localStream = null;             // MediaStream
-    let localTrack = null;              // MediaStreamTrack (audio)
+  // Peer state
+  const peers = new Map();            // peerId -> RTCPeerConnection
+  const audioSenders = new Map();     // peerId -> RTCRtpSender
+  let localStream=null, localTrack=null;
 
-    // STUN only for now (TURN later)
-    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+  // Audio monitor (scope/VU/tuner)
+  let audioCtx=null, analyser=null, scopeData=null, vuData=null;
+  let tunerEnabled=false, rafId=null;
 
-    // ======== Socket Setup ========
-    function initializeSocket() {
-      socket = io({
-        transports: ['websocket','polling'],
-        timeout: 5000,
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000
-      });
-      setupSocketListeners();
-    }
+  const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-    function setupSocketListeners() {
-      socket.on('connect', () => setStatus('connected','connected to claudio'));
-      socket.on('disconnect', () => {
-        setStatus('disconnected','disconnected');
-        // drop peers and senders
-        [...peers.keys()].forEach(closePeer);
-      });
-      socket.on('connect_error', () => setStatus('disconnected','connection failed'));
+  function initializeSocket(){
+    socket = io({ transports:['websocket','polling'], reconnection:true, reconnectionAttempts:5, reconnectionDelay:1000 });
+    socket.on('connect', () => { setStatus('connected','connected to claudio'); });
+    socket.on('disconnect', () => { setStatus('disconnected','disconnected'); dropAllPeers(); });
+    socket.on('connect_error', () => setStatus('disconnected','connection failed'));
 
-      socket.on('joined-room', ({ roomId, users }) => {
-        currentRoom = roomId;
-        document.getElementById('roomInfo').innerHTML = `in session: <strong>${roomId}</strong>`;
-        updateUserList(users);
-        // create offers to existing users
-        for (const u of users) if (u.id !== socket.id) createOfferTo(u.id);
-      });
+    socket.on('joined-room', ({ roomId, users }) => {
+      currentRoom = roomId;
+      document.getElementById('roomInfo').textContent = `in session: ${roomId}`;
+      updateUserList(users);
+      users.forEach(u => { if (u.id !== socket.id) createOfferTo(u.id); });
+    });
+    socket.on('user-joined', ({ user, users }) => { updateUserList(users); if (user?.id!==socket.id) createOfferTo(user.id); });
+    socket.on('user-left', ({ id }) => closePeer(id));
+    socket.on('users-updated', ({ users }) => updateUserList(users));
 
-      socket.on('user-joined', ({ user, users }) => {
-        updateUserList(users);
-        if (user?.id && user.id !== socket.id) createOfferTo(user.id);
-      });
-
-      socket.on('user-left', ({ id }) => closePeer(id));
-      socket.on('users-updated', ({ users }) => updateUserList(users));
-
-      // latency probe
-      socket.on('pong', (ts) => {
-        const latency = Date.now() - ts;
-        const color = latency < 20 ? 'var(--success)' : latency < 50 ? 'var(--warning)' : 'var(--danger)';
-        document.getElementById('latencyResult').innerHTML = `<span style="color:${color};">${latency}ms</span>`;
-      });
-
-      // WebRTC signaling
-      socket.on('signal', async ({ from, data }) => {
-        let pc = peers.get(from);
-        if (!pc) pc = await createPeer(from, false);
-
-        if (data.sdp) {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          if (data.sdp.type === 'offer') {
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            socket.emit('signal', { to: from, roomId: currentRoom, data: { sdp: pc.localDescription } });
-          }
-        } else if (data.candidate) {
-          try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch {}
-        }
-      });
-    }
-
-    // ======== UI helpers ========
-    function setStatus(status, text){
-      const el = document.getElementById('connectionStatus');
-      el.className = `status-bar status-${status}`;
-      el.innerHTML = `<div class="status-dot"></div>${text}`;
-    }
-    function showError(msg){ console.error(msg); }
-
-    // ======== Session ========
-    function joinRoom(){
-      const roomId = document.getElementById('roomId').value.trim().toUpperCase();
-      const username = document.getElementById('username').value.trim();
-      const instrument = document.getElementById('instrument').value;
-      if (!roomId || !username) return showError('enter room + name');
-      socket.emit('join-room', { roomId, username, instrument });
-    }
-    function createRoom(){
-      const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'; let r=''; for (let i=0;i<6;i++) r+=chars[Math.floor(Math.random()*chars.length)];
-      document.getElementById('roomId').value = r;
-    }
-    function updateUserList(users){
-      const list = document.getElementById('userList');
-      if (!users || users.length===0) { list.innerHTML=''; return; }
-      list.innerHTML = users.map(u => `
-        <div class="user-item" role="listitem">
-          <div>
-            <div class="user-name">${escapeHtml(u.username)}</div>
-            <div class="user-instrument">${escapeHtml(u.instrument)} ${u.id===socket.id ? '(you)' : ''}</div>
-          </div>
-          <div>${u.audioEnabled ? '🔊' : '🔇'}</div>
-        </div>`).join('');
-    }
-    function testLatency(){
-      if (!socket?.connected) return showError('Not connected');
-      document.getElementById('latencyResult').innerHTML = '<span class="loading-spinner"></span>';
-      socket.emit('ping', Date.now());
-      setTimeout(()=>{
-        const el=document.getElementById('latencyResult');
-        if (el.innerHTML.includes('loading-spinner')) el.innerHTML = '<span style="color:var(--danger)">timeout</span>';
-      }, 5000);
-    }
-
-    // ======== WebRTC (PTT Mesh, transceiver-first) ========
-    async function ensureLocalStream(){
-      if (localStream && localTrack) return;
-      localStream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount:1, sampleRate:48000, echoCancellation:false, noiseSuppression:false, autoGainControl:false },
-        video: false
-      });
-      localTrack = localStream.getAudioTracks()[0];
-    }
-
-    async function createPeer(peerId, isInitiator){
-      const pc = new RTCPeerConnection(rtcConfig);
-      peers.set(peerId, pc);
-
-      // Pre-create a sendrecv transceiver so receivers are ready and we can swap tracks without renegotiation
-      const transceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
-      audioSenders.set(peerId, transceiver.sender); // keep sender handle for replaceTrack()
-
-      pc.onicecandidate = (e) => { if (e.candidate) socket.emit('signal', { to: peerId, roomId: currentRoom, data: { candidate: e.candidate } }); };
-      pc.onconnectionstatechange = () => {
-        if (['failed','closed','disconnected'].includes(pc.connectionState)) closePeer(peerId);
-      };
-      pc.ontrack = (e) => attachRemoteAudio(peerId, e.streams[0]);
-
-      if (isInitiator) {
-        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
-        await pc.setLocalDescription(offer);
-        socket.emit('signal', { to: peerId, roomId: currentRoom, data: { sdp: pc.localDescription } });
-      }
-      return pc;
-    }
-
-    async function createOfferTo(peerId){
-      if (peers.has(peerId)) return peers.get(peerId);
-      return createPeer(peerId, true);
-    }
-
-    function closePeer(peerId){
-      const pc = peers.get(peerId);
-      if (pc) { try { pc.close(); } catch {} }
-      peers.delete(peerId);
-      audioSenders.delete(peerId);
-      detachRemoteAudio(peerId);
-    }
-
-    function attachRemoteAudio(peerId, stream){
-      let el = document.getElementById(`audio-${peerId}`);
-      if (!el) {
-        el = document.createElement('audio');
-        el.id = `audio-${peerId}`;
-        el.autoplay = true; el.playsInline = true;
-        el.style.display = 'none';
-        document.body.appendChild(el);
-      }
-      el.srcObject = stream;
-      // Try to start playback (some browsers need explicit call even after user gesture)
-      el.play().catch(()=>{ /* ignore autoplay promise rejection; next user gesture will unlock */ });
-    }
-    function detachRemoteAudio(peerId){
-      const el = document.getElementById(`audio-${peerId}`);
-      if (el) { el.srcObject = null; el.remove(); }
-    }
-
-    // Push-to-talk — swap tracks without renegotiation
-    async function startTalkback(e){
-      if (e) e.preventDefault();
-      if (!socket?.connected || !currentRoom) return;
-      if (isTalking) return;
-      isTalking = true;
-      document.getElementById('talkbackBtn').classList.add('active');
-
-      try{
-        await ensureLocalStream();
-        // put mic on every sender
-        audioSenders.forEach(async (sender) => {
-          try { await sender.replaceTrack(localTrack); } catch {}
-        });
-        socket.emit('toggle-audio', true);
-      } catch(err){
-        showError('mic permission denied'); stopTalkback();
-      }
-    }
-
-    function stopTalkback(e){
-      if (e) e.preventDefault();
-      if (!isTalking) return;
-      isTalking = false;
-      document.getElementById('talkbackBtn').classList.remove('active');
-
-      // remove mic from all senders but keep the transceivers alive
-      audioSenders.forEach(async (sender) => {
-        try { await sender.replaceTrack(null); } catch {}
-      });
-      socket.emit('toggle-audio', false);
-    }
-
-    // ======== Utils / Events ========
-    function escapeHtml(t){ const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
-
-    document.addEventListener('DOMContentLoaded', () => {
-      initializeSocket();
-
-      // small user-gesture helper to unlock audio on first click anywhere
-      const unlock = () => {
-        document.removeEventListener('click', unlock, true);
-        // try playing any remote elements that might be pending
-        document.querySelectorAll('audio').forEach(a => a.play().catch(()=>{}));
-      };
-      document.addEventListener('click', unlock, true);
-
-      // tidy inputs
-      const roomIdInput = document.getElementById('roomId');
-      roomIdInput.addEventListener('input', (e)=>{
-        const v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').substring(0,10);
-        if (v !== e.target.value) e.target.value = v;
-      });
-      document.getElementById('username').addEventListener('blur', e => e.target.value = e.target.value.trim());
+    socket.on('pong', (ts) => {
+      const ms = Date.now()-ts;
+      const color = ms<20?'#22c55e':ms<50?'#f59e0b':'#ef4444';
+      document.getElementById('latencyResult').innerHTML = `<span style="color:${color}">${ms}ms</span>`;
     });
 
-    window.addEventListener('beforeunload', () => { if (socket?.connected) socket.disconnect(); });
+    socket.on('signal', async ({ from, data }) => {
+      let pc = peers.get(from);
+      if (!pc) pc = await createPeer(from,false);
+
+      if (data.sdp){
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        if (data.sdp.type==='offer'){
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit('signal',{ to: from, roomId: currentRoom, data:{ sdp: pc.localDescription }});
+        }
+      } else if (data.candidate){
+        try{ await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); }catch{}
+      }
+    });
+  }
+
+  function setStatus(type,text){
+    const el = document.getElementById('connectionStatus');
+    el.className = `status-bar status-${type}`;
+    el.innerHTML = `<div class="status-dot"></div><span class="mono">${text}</span>`;
+  }
+
+  function updateUserList(users){
+    const wrap=document.getElementById('userList');
+    if (!users || users.length===0){ wrap.innerHTML=''; return; }
+    wrap.innerHTML = users.map(u => `
+      <div class="row" style="justify-content:space-between;padding:8px 10px;border:1px solid rgba(70,70,70,.6);border-radius:10px;margin:6px 0">
+        <div>
+          <div class="mono" style="font-weight:600">${escapeHtml(u.username)} ${u.id===socket.id?'(you)':''}</div>
+          <div class="mono" style="opacity:.7">${escapeHtml(u.instrument)}</div>
+        </div>
+        <div>${u.audioEnabled ? '🔊' : '🔇'}</div>
+      </div>`).join('');
+  }
+
+  function testLatency(){
+    if (!socket?.connected) return;
+    document.getElementById('latencyResult').textContent='…';
+    socket.emit('ping', Date.now());
+  }
+
+  async function ensureLocalStream(){
+    if (localStream && localTrack) return;
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount:1, sampleRate:48000, echoCancellation:false, noiseSuppression:false, autoGainControl:false },
+      video: false
+    });
+    localTrack = localStream.getAudioTracks()[0];
+
+    // Init AudioContext for tuner/VU once we have mic permission
+    if (!audioCtx){
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+      const src = audioCtx.createMediaStreamSource(localStream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.85;
+      src.connect(analyser);
+      scopeData = new Float32Array(analyser.fftSize);
+      vuData = new Float32Array(analyser.fftSize);
+    }
+  }
+
+  async function createPeer(peerId, isInitiator){
+    const pc = new RTCPeerConnection(rtcConfig);
+    peers.set(peerId, pc);
+
+    // Create audio transceiver so remote is ready; keep sender handle
+    const transceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
+    audioSenders.set(peerId, transceiver.sender);
+
+    pc.onicecandidate = (e)=>{ if(e.candidate) socket.emit('signal',{ to:peerId, roomId:currentRoom, data:{ candidate:e.candidate } }); };
+    pc.onconnectionstatechange = ()=>{
+      const st = pc.connectionState;
+      if (st) document.getElementById('transportInfo').textContent = `${st}`;
+      if (['failed','closed','disconnected'].includes(st)) closePeer(peerId);
+    };
+    pc.oniceconnectionstatechange = ()=>{
+      const st = pc.iceConnectionState;
+      if (st) document.getElementById('transportInfo').textContent = `${st}`;
+    };
+    pc.ontrack = (e)=>{
+      attachRemoteAudio(peerId, e.streams[0]);
+    };
+
+    if (isInitiator){
+      const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:false });
+      await pc.setLocalDescription(offer);
+      socket.emit('signal',{ to:peerId, roomId:currentRoom, data:{ sdp: pc.localDescription }});
+    }
+    return pc;
+  }
+
+  async function createOfferTo(peerId){
+    if (peers.has(peerId)) return peers.get(peerId);
+    return createPeer(peerId,true);
+  }
+
+  function closePeer(peerId){
+    const pc = peers.get(peerId);
+    if (pc){ try{pc.close();}catch{} }
+    peers.delete(peerId);
+    audioSenders.delete(peerId);
+    detachRemoteAudio(peerId);
+  }
+
+  function dropAllPeers(){ [...peers.keys()].forEach(closePeer); }
+
+  function attachRemoteAudio(peerId, stream){
+    let el = document.getElementById(`audio-${peerId}`);
+    if (!el){
+      el = document.createElement('audio');
+      el.id = `audio-${peerId}`;
+      el.autoplay = true; el.playsInline = true; el.style.display='none';
+      document.body.appendChild(el);
+    }
+    el.srcObject = stream;
+    el.play().catch(()=>{ /* autoplay blocked until any user gesture; PTT will unlock */ });
+  }
+  function detachRemoteAudio(peerId){
+    const el=document.getElementById(`audio-${peerId}`);
+    if (el){ el.srcObject=null; el.remove(); }
+  }
+
+  async function startTalkback(e){
+    if (e) e.preventDefault();
+    if (!socket?.connected || !currentRoom) return;
+    if (isTalking) return;
+    isTalking = true;
+    document.getElementById('talkbackBtn').classList.add('active');
+
+    try{
+      await ensureLocalStream();
+      // Replace track on all senders (no renegotiation)
+      audioSenders.forEach(async sender => { try{ await sender.replaceTrack(localTrack); }catch{} });
+      socket.emit('toggle-audio', true);
+      // resume context to satisfy autoplay policies
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
+    }catch(err){
+      console.error(err); stopTalkback();
+    }
+  }
+
+  function stopTalkback(e){
+    if (e) e.preventDefault();
+    if (!isTalking) return;
+    isTalking = false;
+    document.getElementById('talkbackBtn').classList.remove('active');
+    audioSenders.forEach(async sender => { try{ await sender.replaceTrack(null); }catch{} });
+    socket.emit('toggle-audio', false);
+  }
+
+  /*** ====== Join / UI ====== ***/
+  function joinRoom(){
+    const roomId = document.getElementById('roomId').value.trim().toUpperCase();
+    const username = document.getElementById('username').value.trim();
+    const instrument = document.getElementById('instrument').value;
+    if (!roomId || !username) return;
+    socket.emit('join-room', { roomId, username, instrument });
+  }
+  function createRoom(){
+    const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'; let r=''; for(let i=0;i<6;i++) r+=chars[Math.floor(Math.random()*chars.length)];
+    document.getElementById('roomId').value = r;
+  }
+  function escapeHtml(t){ const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+
+  /*** ====== Session Timer ====== ***/
+  let durationMin = 60, startTs=null, ticking=false, timerId=null;
+  function setDuration(){
+    const v = parseInt(document.getElementById('durationInput').value,10);
+    if (!isNaN(v) && v>=5 && v<=240){ durationMin = v; updateTimerLabels(); }
+  }
+  function toggleTimer(){
+    if (ticking){ pauseTimer(); }
+    else { startTs = Date.now() - (getElapsedMs()); ticking=true; runTimer(); document.getElementById('timerToggle').textContent='pause'; }
+  }
+  function runTimer(){
+    if (!ticking) return;
+    updateTimerLabels();
+    timerId = setTimeout(runTimer, 250);
+  }
+  function pauseTimer(){ ticking=false; clearTimeout(timerId); document.getElementById('timerToggle').textContent='start'; }
+  function resetTimer(){ startTs = Date.now(); ticking=false; clearTimeout(timerId); updateTimerLabels(); document.getElementById('timerToggle').textContent='start'; }
+  function getElapsedMs(){ if (!startTs) return 0; return Math.max(0, Date.now()-startTs); }
+  function fmt(ms){ const s=Math.floor(ms/1000); const m=Math.floor(s/60), ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}`; }
+  function updateTimerLabels(){
+    const elapsedMs = getElapsedMs();
+    const totalMs = durationMin*60*1000;
+    const remainingMs = Math.max(0, totalMs - elapsedMs);
+    document.getElementById('elapsed').textContent = fmt(elapsedMs);
+    document.getElementById('remaining').textContent = fmt(remainingMs);
+  }
+
+  /*** ====== Tuner & VU ====== ***/
+  const A4 = 440, NOTES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  function toggleTuner(){
+    tunerEnabled = !tunerEnabled;
+    document.getElementById('tunerBtn').textContent = tunerEnabled ? 'disable tuner' : 'enable tuner';
+    if (tunerEnabled){ startAnalysis(); } else { stopAnalysis(); }
+  }
+
+  function startAnalysis(){
+    if (!audioCtx){ // ask mic if needed
+      ensureLocalStream().then(()=>{ startAnalysisLoop(); }).catch(()=>{});
+    } else { startAnalysisLoop(); }
+  }
+  function stopAnalysis(){
+    if (rafId) cancelAnimationFrame(rafId);
+  }
+  function startAnalysisLoop(){
+    const canvas = document.getElementById('scope');
+    const ctx = canvas.getContext('2d');
+
+    const targetDb = ()=> parseFloat(document.getElementById('targetDb').value)||-18;
+
+    const loop = ()=>{
+      if (!tunerEnabled || !analyser) return;
+      analyser.getFloatTimeDomainData(scopeData);
+
+      // Draw oscilloscope
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.lineWidth=2; ctx.strokeStyle='#9ca3af';
+      ctx.beginPath();
+      const len = scopeData.length, step = canvas.width/len, mid = canvas.height/2;
+      for (let i=0;i<len;i++){
+        const y = mid + scopeData[i]*mid*0.9;
+        const x = i*step;
+        if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+
+      // VU (RMS -> dBFS)
+      let sum=0; for (let i=0;i<len;i++){ const v=scopeData[i]; sum += v*v; }
+      const rms = Math.sqrt(sum/len);
+      const db = 20*Math.log10(rms || 1e-8); // dBFS approx
+      const pct = Math.min(100, Math.max(0, 100*(db+60)/60)); // map -60..0 dBFS -> 0..100%
+      document.getElementById('vuFill').style.width = pct + '%';
+      const target = targetDb();
+      const targetPct = Math.min(100, Math.max(0, 100*((target)+60)/60));
+      document.getElementById('vuNeedle').style.left = targetPct + '%';
+
+      // Tuner (autocorrelation)
+      const freq = estimatePitch(scopeData, audioCtx.sampleRate);
+      if (freq){
+        const {note, cents} = noteFromFrequency(freq);
+        document.getElementById('note').textContent = note;
+        document.getElementById('cents').textContent = (cents>0?'+':'') + cents.toFixed(1);
+        document.getElementById('freq').textContent = freq.toFixed(2)+' Hz';
+      } else {
+        document.getElementById('note').textContent='--';
+        document.getElementById('cents').textContent='--';
+        document.getElementById('freq').textContent='--';
+      }
+
+      rafId = requestAnimationFrame(loop);
+    };
+    loop();
+  }
+
+  function estimatePitch(buf, sampleRate){
+    // Basic ACF pitch detection
+    const SIZE = buf.length;
+    let rms = 0;
+    for (let i=0;i<SIZE;i++){ const v=buf[i]; rms += v*v; }
+    rms = Math.sqrt(rms/SIZE);
+    if (rms < 0.008) return null; // too quiet
+
+    let r1=0, r2=SIZE-1, th=0.2;
+    for (let i=0;i<SIZE/2;i++){ if (Math.abs(buf[i])<th){ r1=i; break; } }
+    for (let i=1;i<SIZE/2;i++){ if (Math.abs(buf[SIZE-i])<th){ r2=SIZE-i; break; } }
+    buf = buf.slice(r1, r2);
+    const newSize = buf.length;
+
+    const c = new Array(newSize).fill(0);
+    for (let lag=0; lag<newSize; lag++){
+      for (let i=0; i<newSize-lag; i++) c[lag] += buf[i]*buf[i+lag];
+    }
+    let d=0; while (c[d]>c[d+1]) d++; // find first dip
+    let max = -1, maxPos = -1;
+    for (let i=d; i<newSize; i++){
+      if (c[i] > max){ max = c[i]; maxPos = i; }
+    }
+    if (maxPos<=0) return null;
+
+    // parabolic interpolation for better accuracy
+    const x1=c[maxPos-1]||0, x2=c[maxPos], x3=c[maxPos+1]||0;
+    const a=(x1+x3-2*x2)/2, b=(x3-x1)/2;
+    const shift = a ? -b/(2*a) : 0;
+    const period = (maxPos + shift) || maxPos;
+
+    return sampleRate / period;
+  }
+
+  function noteFromFrequency(freq){
+    const n = 12*Math.log2(freq/A4);
+    const midi = Math.round(n)+69;
+    const octave = Math.floor(midi/12)-1;
+    const name = NOTES[midi%12] + octave;
+    const ref = A4 * Math.pow(2,(midi-69)/12);
+    const cents = 1200*Math.log2(freq/ref);
+    return { note: name, cents };
+  }
+
+  /*** ====== Boot ====== ***/
+  document.addEventListener('DOMContentLoaded', ()=>{
+    initializeSocket();
+
+    // unlock audio on first interaction (helps autoplay policies)
+    const unlock = ()=>{
+      document.removeEventListener('click', unlock, true);
+      if (audioCtx && audioCtx.state==='suspended') audioCtx.resume().catch(()=>{});
+      document.querySelectorAll('audio').forEach(a=>a.play().catch(()=>{}));
+    };
+    document.addEventListener('click', unlock, true);
+
+    // tidy inputs
+    const roomIdInput = document.getElementById('roomId');
+    roomIdInput.addEventListener('input', e=>{
+      const v=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').substring(0,10);
+      if (v!==e.target.value) e.target.value=v;
+    });
+    document.getElementById('username').addEventListener('blur', e=>e.target.value=e.target.value.trim());
+
+    updateTimerLabels();
+  });
+
+  window.addEventListener('beforeunload', ()=>{ if (socket?.connected) socket.disconnect(); });
+
   </script>
 </body>
 </html>
