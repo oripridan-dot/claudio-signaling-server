@@ -55,7 +55,6 @@
     .btn-talkback{background:var(--danger-light);border:2px solid var(--danger-border);color:var(--danger)}
     .btn-talkback.active{background:rgba(239,68,68,.4);border-color:rgba(239,68,68,.8);animation:recording-pulse 1.5s infinite}
     @keyframes recording-pulse{0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.3),0 0 0 0 rgba(239,68,68,.4)}50%{box-shadow:0 4px 20px rgba(0,0,0,.3),0 0 0 10px rgba(239,68,68,0)}}
-    .btn-chat{background:var(--bg-secondary);border:2px solid var(--border-primary);color:var(--text-secondary)}
     .room-info{font-size:.9rem;color:#b0b0b0;padding:12px 0}
     .user-list{display:grid;gap:10px;margin-top:16px}
     .user-item{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:rgba(50,50,50,.5);
@@ -64,7 +63,6 @@
     .user-instrument{font-size:.75rem;color:var(--text-muted)}
     .latency-display{display:flex;align-items:center;justify-content:space-between;margin-top:16px;flex-wrap:wrap;gap:12px}
     .latency-value{font-weight:600;font-size:1rem;padding:8px 12px;background:rgba(50,50,50,.5);border-radius:6px;min-width:60px;text-align:center}
-    .close-btn{background:none;border:none;color:var(--text-muted);font-size:1.4rem;cursor:pointer;padding:4px;width:32px;height:32px;border-radius:6px}
     .loading-spinner{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.3);border-top:2px solid currentColor;border-radius:50%;animation:spin 1s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
     @media (max-width:768px){.container{padding:12px 12px 80px}.header{margin-bottom:20px}.card{padding:20px}}
@@ -138,23 +136,21 @@
     </button>
   </div>
 
-  <!-- Chat Panel (kept minimal here) -->
-  <div id="chatPanel" style="display:none"></div>
-
-  <!-- Socket.IO client (same origin served) -->
+  <!-- Socket.IO client (same origin) -->
   <script src="/socket.io/socket.io.js"></script>
   <script>
     // ======== Global State ========
     let socket = null;
     let currentRoom = null;
-    let unreadMessages = 0;
     let isTalking = false;
 
-    const peers = new Map();     // peerId -> RTCPeerConnection
-    let localStream = null;      // mic stream
-    let sending = false;         // PTT state
+    // Peer state
+    const peers = new Map();            // peerId -> RTCPeerConnection
+    const audioSenders = new Map();     // peerId -> RTCRtpSender (audio)
+    let localStream = null;             // MediaStream
+    let localTrack = null;              // MediaStreamTrack (audio)
 
-    // STUN only for now; TURN can be added later via env-config endpoint
+    // STUN only for now (TURN later)
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
     // ======== Socket Setup ========
@@ -170,14 +166,10 @@
     }
 
     function setupSocketListeners() {
-      socket.on('connect', () => {
-        setStatus('connected','connected to claudio');
-        enableControls();
-      });
-      socket.on('disconnect', (reason) => {
+      socket.on('connect', () => setStatus('connected','connected to claudio'));
+      socket.on('disconnect', () => {
         setStatus('disconnected','disconnected');
-        disableControls();
-        // drop peers
+        // drop peers and senders
         [...peers.keys()].forEach(closePeer);
       });
       socket.on('connect_error', () => setStatus('disconnected','connection failed'));
@@ -186,11 +178,8 @@
         currentRoom = roomId;
         document.getElementById('roomInfo').innerHTML = `in session: <strong>${roomId}</strong>`;
         updateUserList(users);
-
         // create offers to existing users
-        for (const u of users) {
-          if (u.id !== socket.id) createOfferTo(u.id);
-        }
+        for (const u of users) if (u.id !== socket.id) createOfferTo(u.id);
       });
 
       socket.on('user-joined', ({ user, users }) => {
@@ -199,7 +188,6 @@
       });
 
       socket.on('user-left', ({ id }) => closePeer(id));
-
       socket.on('users-updated', ({ users }) => updateUserList(users));
 
       // latency probe
@@ -233,27 +221,19 @@
       el.className = `status-bar status-${status}`;
       el.innerHTML = `<div class="status-dot"></div>${text}`;
     }
-    function enableControls(){ ['joinBtn','createBtn','latencyBtn'].forEach(id => { const b=document.getElementById(id); if(b) b.disabled=false; }); }
-    function disableControls(){ ['joinBtn','createBtn','latencyBtn'].forEach(id => { const b=document.getElementById(id); if(b) b.disabled=true; }); }
     function showError(msg){ console.error(msg); }
 
-    // ======== Session / Chat ========
+    // ======== Session ========
     function joinRoom(){
       const roomId = document.getElementById('roomId').value.trim().toUpperCase();
       const username = document.getElementById('username').value.trim();
       const instrument = document.getElementById('instrument').value;
       if (!roomId || !username) return showError('enter room + name');
-
       socket.emit('join-room', { roomId, username, instrument });
     }
     function createRoom(){
-      const roomId = generateRoomCode();
-      document.getElementById('roomId').value = roomId;
-    }
-    function generateRoomCode(){
-      const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'; let r='';
-      for (let i=0;i<6;i++) r+=chars[Math.floor(Math.random()*chars.length)];
-      return r;
+      const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'; let r=''; for (let i=0;i<6;i++) r+=chars[Math.floor(Math.random()*chars.length)];
+      document.getElementById('roomId').value = r;
     }
     function updateUserList(users){
       const list = document.getElementById('userList');
@@ -272,37 +252,34 @@
       document.getElementById('latencyResult').innerHTML = '<span class="loading-spinner"></span>';
       socket.emit('ping', Date.now());
       setTimeout(()=>{
-        if (document.getElementById('latencyResult').innerHTML.includes('loading-spinner')) {
-          document.getElementById('latencyResult').innerHTML = '<span style="color:var(--danger)">timeout</span>';
-        }
+        const el=document.getElementById('latencyResult');
+        if (el.innerHTML.includes('loading-spinner')) el.innerHTML = '<span style="color:var(--danger)">timeout</span>';
       }, 5000);
     }
 
-    // ======== WebRTC (PTT Mesh) ========
+    // ======== WebRTC (PTT Mesh, transceiver-first) ========
     async function ensureLocalStream(){
-      if (localStream) return localStream;
-      // music-friendly: mono 48k, no EC/NS/AGC
+      if (localStream && localTrack) return;
       localStream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount:1, sampleRate:48000, echoCancellation:false, noiseSuppression:false, autoGainControl:false },
         video: false
       });
-      return localStream;
+      localTrack = localStream.getAudioTracks()[0];
     }
 
     async function createPeer(peerId, isInitiator){
       const pc = new RTCPeerConnection(rtcConfig);
       peers.set(peerId, pc);
 
+      // Pre-create a sendrecv transceiver so receivers are ready and we can swap tracks without renegotiation
+      const transceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
+      audioSenders.set(peerId, transceiver.sender); // keep sender handle for replaceTrack()
+
       pc.onicecandidate = (e) => { if (e.candidate) socket.emit('signal', { to: peerId, roomId: currentRoom, data: { candidate: e.candidate } }); };
       pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') closePeer(peerId);
+        if (['failed','closed','disconnected'].includes(pc.connectionState)) closePeer(peerId);
       };
       pc.ontrack = (e) => attachRemoteAudio(peerId, e.streams[0]);
-
-      // if already talking, add track immediately
-      if (sending && localStream) {
-        localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-      }
 
       if (isInitiator) {
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
@@ -313,8 +290,7 @@
     }
 
     async function createOfferTo(peerId){
-      const exists = peers.get(peerId);
-      if (exists) return exists;
+      if (peers.has(peerId)) return peers.get(peerId);
       return createPeer(peerId, true);
     }
 
@@ -322,6 +298,7 @@
       const pc = peers.get(peerId);
       if (pc) { try { pc.close(); } catch {} }
       peers.delete(peerId);
+      audioSenders.delete(peerId);
       detachRemoteAudio(peerId);
     }
 
@@ -335,59 +312,68 @@
         document.body.appendChild(el);
       }
       el.srcObject = stream;
+      // Try to start playback (some browsers need explicit call even after user gesture)
+      el.play().catch(()=>{ /* ignore autoplay promise rejection; next user gesture will unlock */ });
     }
     function detachRemoteAudio(peerId){
       const el = document.getElementById(`audio-${peerId}`);
       if (el) { el.srcObject = null; el.remove(); }
     }
 
-    // Push-to-talk controls
+    // Push-to-talk — swap tracks without renegotiation
     async function startTalkback(e){
       if (e) e.preventDefault();
       if (!socket?.connected || !currentRoom) return;
       if (isTalking) return;
-      isTalking = true; sending = true;
+      isTalking = true;
       document.getElementById('talkbackBtn').classList.add('active');
 
       try{
         await ensureLocalStream();
-        // add track to all peers
-        peers.forEach(pc => localStream.getTracks().forEach(t => pc.addTrack(t, localStream)));
+        // put mic on every sender
+        audioSenders.forEach(async (sender) => {
+          try { await sender.replaceTrack(localTrack); } catch {}
+        });
         socket.emit('toggle-audio', true);
       } catch(err){
         showError('mic permission denied'); stopTalkback();
       }
     }
+
     function stopTalkback(e){
       if (e) e.preventDefault();
       if (!isTalking) return;
-      isTalking = false; sending = false;
+      isTalking = false;
       document.getElementById('talkbackBtn').classList.remove('active');
 
-      peers.forEach(pc => {
-        pc.getSenders()
-          .filter(s => s.track && s.track.kind === 'audio')
-          .forEach(s => pc.removeTrack(s));
+      // remove mic from all senders but keep the transceivers alive
+      audioSenders.forEach(async (sender) => {
+        try { await sender.replaceTrack(null); } catch {}
       });
       socket.emit('toggle-audio', false);
     }
 
     // ======== Utils / Events ========
     function escapeHtml(t){ const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
-    function formatRoomCode(v){ return v.toUpperCase().replace(/[^A-Z0-9]/g,'').substring(0,10); }
 
     document.addEventListener('DOMContentLoaded', () => {
       initializeSocket();
 
+      // small user-gesture helper to unlock audio on first click anywhere
+      const unlock = () => {
+        document.removeEventListener('click', unlock, true);
+        // try playing any remote elements that might be pending
+        document.querySelectorAll('audio').forEach(a => a.play().catch(()=>{}));
+      };
+      document.addEventListener('click', unlock, true);
+
+      // tidy inputs
       const roomIdInput = document.getElementById('roomId');
-      roomIdInput.addEventListener('input', (e)=>{ const f=formatRoomCode(e.target.value); if (f!==e.target.value) e.target.value=f; });
+      roomIdInput.addEventListener('input', (e)=>{
+        const v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').substring(0,10);
+        if (v !== e.target.value) e.target.value = v;
+      });
       document.getElementById('username').addEventListener('blur', e => e.target.value = e.target.value.trim());
-
-      document.getElementById('talkbackBtn').addEventListener('contextmenu', e => e.preventDefault());
-      document.getElementById('talkbackBtn').addEventListener('touchstart', startTalkback, { passive:false });
-      document.getElementById('talkbackBtn').addEventListener('touchend', stopTalkback, { passive:false });
-
-      (roomIdInput.value ? document.getElementById('username') : roomIdInput).focus();
     });
 
     window.addEventListener('beforeunload', () => { if (socket?.connected) socket.disconnect(); });
