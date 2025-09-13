@@ -328,3 +328,97 @@ server.listen(PORT, () => {
 });
 
 module.exports = app;
+import express from "express";
+import http from "http";
+import cors from "cors";
+import { Server } from "socket.io";
+
+const PORT = process.env.PORT || 8080;
+const ORIGIN = process.env.ALLOW_ORIGIN || "*"; // set your frontend origin in production
+
+const app = express();
+app.use(cors({ origin: ORIGIN }));
+app.get("/healthz", (_, res) => res.status(200).send("ok"));
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: ORIGIN, methods: ["GET", "POST"] },
+  transports: ["websocket", "polling"]
+});
+
+// roomId -> Map<socketId, {username, instrument, audioEnabled}>
+const rooms = new Map();
+const usersOf = (roomId) =>
+  rooms.get(roomId) ? [...rooms.get(roomId).entries()].map(([id, u]) => ({ id, ...u })) : [];
+
+io.on("connection", (socket) => {
+  socket.data.username = null;
+  socket.data.roomId = null;
+
+  socket.on("join-room", ({ roomId, username, instrument }) => {
+    if (!roomId || !username) return;
+    roomId = String(roomId).toUpperCase();
+
+    socket.join(roomId);
+    socket.data.username = username;
+    socket.data.instrument = instrument || "other";
+    socket.data.roomId = roomId;
+
+    if (!rooms.has(roomId)) rooms.set(roomId, new Map());
+    rooms.get(roomId).set(socket.id, {
+      username,
+      instrument: socket.data.instrument,
+      audioEnabled: true
+    });
+
+    socket.emit("joined-room", { roomId, users: usersOf(roomId) });
+    socket.to(roomId).emit("user-joined", {
+      user: { id: socket.id, username, instrument: socket.data.instrument },
+      users: usersOf(roomId)
+    });
+  });
+
+  socket.on("toggle-audio", (enabled) => {
+    const roomId = socket.data.roomId;
+    if (!roomId || !rooms.has(roomId)) return;
+    const m = rooms.get(roomId);
+    const u = m.get(socket.id);
+    if (!u) return;
+    u.audioEnabled = !!enabled;
+    io.to(roomId).emit("users-updated", { users: usersOf(roomId) });
+  });
+
+  socket.on("chat-message", ({ roomId, message }) => {
+    roomId = roomId || socket.data.roomId;
+    if (!roomId || !message) return;
+    io.to(roomId).emit("chat-message", {
+      userId: socket.id,
+      username: socket.data.username || "user",
+      message: String(message).slice(0, 200)
+    });
+  });
+
+  // latency probe
+  socket.on("ping", (ts) => socket.emit("pong", ts));
+
+  // WebRTC signaling (for Phase 2)
+  socket.on("signal", ({ roomId, to, data }) => {
+    roomId = roomId || socket.data.roomId;
+    if (!roomId) return;
+    if (to) io.to(to).emit("signal", { from: socket.id, data });
+    else socket.to(roomId).emit("signal", { from: socket.id, data });
+  });
+
+  socket.on("disconnect", () => {
+    const roomId = socket.data.roomId;
+    if (!roomId || !rooms.has(roomId)) return;
+    const m = rooms.get(roomId);
+    const user = m.get(socket.id);
+    m.delete(socket.id);
+    if (m.size === 0) rooms.delete(roomId);
+    socket.to(roomId).emit("user-left", { id: socket.id, username: user?.username });
+    io.to(roomId).emit("users-updated", { users: usersOf(roomId) });
+  });
+});
+
+server.listen(PORT, () => console.log(`signaling on :${PORT}`));
