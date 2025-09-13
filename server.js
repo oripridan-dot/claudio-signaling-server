@@ -1,114 +1,141 @@
+// server.js
 import express from "express";
 import http from "http";
 import cors from "cors";
+import helmet from "helmet";
+import compression from "compression";
+import morgan from "morgan";
 import { Server } from "socket.io";
-import path from "path";
-import { fileURLToPath } from "url";
+import crypto from "node:crypto";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const PORT = process.env.PORT || 8080;
-const ORIGIN = process.env.ALLOW_ORIGIN || undefined; // undefined = same-origin
+// ---- App & HTTP
 const app = express();
-
-app.use(cors({ origin: ORIGIN || true }));
-app.get("/healthz", (_, res) => res.status(200).send("ok"));
-
-// Serve static UI
-const publicDir = path.join(__dirname, "public");
-app.use(express.static(publicDir));
-
-// Create HTTP server + Socket.IO
 const server = http.createServer(app);
+
+// ---- Socket.IO
 const io = new Server(server, {
-  cors: { origin: ORIGIN || true, methods: ["GET", "POST"] },
+  cors: { origin: "*", methods: ["GET", "POST"] },
   transports: ["websocket", "polling"]
 });
 
-/** In-memory room state (swap to Redis when you scale horizontally) */
-const rooms = new Map(); // roomId -> Map<socketId, {username, instrument, audioEnabled}>
+// ---- Middleware & static files
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(compression());
+app.use(cors());
+app.use(express.json({ limit: "1mb" }));
+app.use(morgan("tiny"));
+app.use(express.static("public"));
 
-function usersIn(roomId) {
-  const m = rooms.get(roomId);
-  return m ? [...m.entries()].map(([id, u]) => ({ id, ...u })) : [];
-}
+// ---- In-memory rooms { roomId -> Set(socketId) }
+const rooms = new Map();
 
+// ---- Helpers
+const log = (...a) => console.log(new Date().toISOString(), ...a);
+const preferOpus = (sdp) => {
+  // force opus @48k, ptime=10, stereo=0
+  try {
+    // move opus payload first in m=audio
+    const m = sdp.match(/^m=audio .+$/m);
+    if (!m) return sdp;
+    const mline = m[0];
+    const opusRtp = sdp.match(/^a=rtpmap:(\d+)\s+opus\/48000\/2$/m);
+    if (!opusRtp) return sdp;
+    const pt = opusRtp[1];
+    const parts = mline.split(" ");
+    const fixed = [parts[0], parts[1], parts[2], pt, ...parts.slice(3).filter(p => p !== pt)].join(" ");
+    sdp = sdp.replace(mline, fixed);
+    // add fmtp for low latency
+    if (!sdp.includes(`a=fmtp:${pt}`)) {
+      sdp += `\na=fmtp:${pt} minptime=10;useinbandfec=1;stereo=0;cbr=1;maxplaybackrate=48000;ptime=10\n`;
+    } else {
+      sdp = sdp.replace(
+        new RegExp(`^a=fmtp:${pt}.*$`, "m"),
+        (line) => line.includes("ptime=") ? line : `${line};ptime=10`
+      );
+    }
+  } catch {}
+  return sdp;
+};
+
+// ---- Socket.IO handlers
 io.on("connection", (socket) => {
-  socket.data.username = null;
-  socket.data.roomId = null;
-  socket.data.instrument = "other";
+  log("conn", socket.id);
 
   socket.on("join-room", ({ roomId, username, instrument }) => {
-    if (!roomId || !username) return;
-    roomId = String(roomId).toUpperCase();
+    roomId = String(roomId || "").toUpperCase().slice(0, 12);
+    if (!roomId) return;
 
+    // join structures
+    if (!rooms.has(roomId)) rooms.set(roomId, new Set());
+    rooms.get(roomId).add(socket.id);
+    socket.data.user = { id: socket.id, username: username || "user", instrument: instrument || "guitar", audioEnabled: false };
     socket.join(roomId);
-    socket.data.username = String(username).slice(0, 20);
-    socket.data.instrument = instrument || "other";
-    socket.data.roomId = roomId;
 
-    if (!rooms.has(roomId)) rooms.set(roomId, new Map());
-    rooms.get(roomId).set(socket.id, {
-      username: socket.data.username,
-      instrument: socket.data.instrument,
-      audioEnabled: true
-    });
+    // notify self
+    const users = [...rooms.get(roomId)].map((id) => io.sockets.sockets.get(id)?.data.user).filter(Boolean);
+    socket.emit("joined-room", { roomId, users });
 
-    socket.emit("joined-room", { roomId, users: usersIn(roomId) });
-    socket.to(roomId).emit("user-joined", {
-      user: { id: socket.id, username: socket.data.username, instrument: socket.data.instrument },
-      users: usersIn(roomId)
-    });
+    // notify others
+    socket.to(roomId).emit("user-joined", { user: socket.data.user, users });
+    log("join", roomId, socket.id, username);
   });
 
-  socket.on("toggle-audio", (enabled) => {
-    const roomId = socket.data.roomId;
-    if (!roomId || !rooms.has(roomId)) return;
-    const m = rooms.get(roomId);
-    const u = m.get(socket.id);
-    if (!u) return;
-    u.audioEnabled = !!enabled;
-    io.to(roomId).emit("users-updated", { users: usersIn(roomId) });
+  socket.on("toggle-audio", (flag) => {
+    if (socket.data.user) socket.data.user.audioEnabled = !!flag;
+    // broadcast updated users list
+    const roomId = [...socket.rooms].find((r) => r !== socket.id);
+    if (roomId && rooms.has(roomId)) {
+      const users = [...rooms.get(roomId)].map((id) => io.sockets.sockets.get(id)?.data.user).filter(Boolean);
+      io.to(roomId).emit("users-updated", { users });
+    }
   });
 
-  socket.on("chat-message", ({ roomId, message }) => {
-    roomId = roomId || socket.data.roomId;
-    if (!roomId || !message) return;
-    io.to(roomId).emit("chat-message", {
-      userId: socket.id,
-      username: socket.data.username || "user",
-      message: String(message).slice(0, 200)
-    });
-  });
-
-  // latency probe (client sends epoch ms)
   socket.on("ping", (ts) => socket.emit("pong", ts));
 
-  // WebRTC signaling passthrough (Phase 2)
-  socket.on("signal", ({ roomId, to, data }) => {
-    roomId = roomId || socket.data.roomId;
-    if (!roomId || !data) return;
-    if (to) io.to(to).emit("signal", { from: socket.id, data });
-    else socket.to(roomId).emit("signal", { from: socket.id, data });
+  // signaling: forward, with tiny SDP munging for Opus/ptime
+  socket.on("signal", ({ to, roomId, data }) => {
+    if (data?.sdp?.sdp) data.sdp.sdp = preferOpus(data.sdp.sdp);
+    io.to(to).emit("signal", { from: socket.id, data });
+    if (data?.sdp) {
+      log("signal-sdp", (data.sdp.type || "?"), "len", String(data.sdp.sdp || "").length, "to", to);
+    } else if (data?.candidate) {
+      // keep it quiet; uncomment to debug ICE:
+      // log("ice", to);
+    }
   });
 
   socket.on("disconnect", () => {
-    const roomId = socket.data.roomId;
-    if (!roomId || !rooms.has(roomId)) return;
-    const m = rooms.get(roomId);
-    const user = m.get(socket.id);
-    m.delete(socket.id);
-    if (m.size === 0) rooms.delete(roomId);
-    socket.to(roomId).emit("user-left", { id: socket.id, username: user?.username });
-    io.to(roomId).emit("users-updated", { users: usersIn(roomId) });
+    // remove from all rooms
+    for (const [roomId, set] of rooms) {
+      if (set.delete(socket.id)) {
+        const users = [...set].map((id) => io.sockets.sockets.get(id)?.data.user).filter(Boolean);
+        socket.to(roomId).emit("user-left", { id: socket.id });
+        io.to(roomId).emit("users-updated", { users });
+        if (set.size === 0) rooms.delete(roomId);
+        log("leave", roomId, socket.id);
+      }
+    }
   });
 });
 
-// Fallback to index.html for root
-app.get("*", (req, res) => {
-  res.sendFile(path.join(publicDir, "index.html"));
+// ---- Diagnostics API
+app.get("/diag/health", (_req, res) => {
+  res.json({ ok: true, time: Date.now(), rooms: [...rooms.entries()].map(([k, v]) => [k, v.size]) });
 });
 
-server.listen(PORT, () => console.log(`claudio signaling listening on :${PORT}`));
+// Run a local wrtc self-test: spins up two headless peers through our signaling bus and
+// confirms inbound RTP bytes grow. Returns a detailed report.
+import { runSelfTest } from "./diagnostics/selftest.js";
+app.post("/diag/selftest", async (req, res) => {
+  try {
+    const timeoutMs = Math.min(15000, Math.max(5000, Number(req.body?.timeoutMs || 9000)));
+    const report = await runSelfTest({ serverPort: PORT, timeoutMs });
+    res.json(report);
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e?.message || String(e) });
+  }
+});
 
+// ---- Start
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => log("listening", PORT));
