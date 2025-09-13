@@ -6,19 +6,14 @@ import helmet from "helmet";
 import compression from "compression";
 import morgan from "morgan";
 import { Server } from "socket.io";
-import crypto from "node:crypto";
 
-// ---- App & HTTP
 const app = express();
 const server = http.createServer(app);
-
-// ---- Socket.IO
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
   transports: ["websocket", "polling"]
 });
 
-// ---- Middleware & static files
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
 app.use(cors());
@@ -26,27 +21,20 @@ app.use(express.json({ limit: "1mb" }));
 app.use(morgan("tiny"));
 app.use(express.static("public"));
 
-// ---- In-memory rooms { roomId -> Set(socketId) }
-const rooms = new Map();
-
-// ---- Helpers
+const rooms = new Map(); // roomId -> Set(socketId)
 const log = (...a) => console.log(new Date().toISOString(), ...a);
-const preferOpus = (sdp) => {
-  // force opus @48k, ptime=10, stereo=0
+
+function preferOpus(sdp) {
   try {
-    // move opus payload first in m=audio
     const m = sdp.match(/^m=audio .+$/m);
-    if (!m) return sdp;
-    const mline = m[0];
-    const opusRtp = sdp.match(/^a=rtpmap:(\d+)\s+opus\/48000\/2$/m);
-    if (!opusRtp) return sdp;
-    const pt = opusRtp[1];
-    const parts = mline.split(" ");
-    const fixed = [parts[0], parts[1], parts[2], pt, ...parts.slice(3).filter(p => p !== pt)].join(" ");
-    sdp = sdp.replace(mline, fixed);
-    // add fmtp for low latency
+    const r = sdp.match(/^a=rtpmap:(\d+)\s+opus\/48000\/2$/m);
+    if (!m || !r) return sdp;
+    const pt = r[1];
+    const fixed = m[0].split(" ");
+    const reordered = [fixed[0], fixed[1], fixed[2], pt, ...fixed.slice(3).filter(x => x !== pt)].join(" ");
+    sdp = sdp.replace(m[0], reordered);
     if (!sdp.includes(`a=fmtp:${pt}`)) {
-      sdp += `\na=fmtp:${pt} minptime=10;useinbandfec=1;stereo=0;cbr=1;maxplaybackrate=48000;ptime=10\n`;
+      sdp += `\na=fmtp:${pt} minptime=10;useinbandfec=1;cbr=1;stereo=0;ptime=10\n`;
     } else {
       sdp = sdp.replace(
         new RegExp(`^a=fmtp:${pt}.*$`, "m"),
@@ -55,9 +43,8 @@ const preferOpus = (sdp) => {
     }
   } catch {}
   return sdp;
-};
+}
 
-// ---- Socket.IO handlers
 io.on("connection", (socket) => {
   log("conn", socket.id);
 
@@ -65,77 +52,67 @@ io.on("connection", (socket) => {
     roomId = String(roomId || "").toUpperCase().slice(0, 12);
     if (!roomId) return;
 
-    // join structures
     if (!rooms.has(roomId)) rooms.set(roomId, new Set());
     rooms.get(roomId).add(socket.id);
-    socket.data.user = { id: socket.id, username: username || "user", instrument: instrument || "guitar", audioEnabled: false };
+    socket.data.user = {
+      id: socket.id,
+      username: username || "user",
+      instrument: instrument || "guitar",
+      audioEnabled: false
+    };
     socket.join(roomId);
 
-    // notify self
-    const users = [...rooms.get(roomId)].map((id) => io.sockets.sockets.get(id)?.data.user).filter(Boolean);
-    socket.emit("joined-room", { roomId, users });
+    const users = [...rooms.get(roomId)]
+      .map((id) => io.sockets.sockets.get(id)?.data.user)
+      .filter(Boolean);
 
-    // notify others
+    socket.emit("joined-room", { roomId, users });
     socket.to(roomId).emit("user-joined", { user: socket.data.user, users });
-    log("join", roomId, socket.id, username);
   });
 
   socket.on("toggle-audio", (flag) => {
     if (socket.data.user) socket.data.user.audioEnabled = !!flag;
-    // broadcast updated users list
     const roomId = [...socket.rooms].find((r) => r !== socket.id);
     if (roomId && rooms.has(roomId)) {
-      const users = [...rooms.get(roomId)].map((id) => io.sockets.sockets.get(id)?.data.user).filter(Boolean);
+      const users = [...rooms.get(roomId)]
+        .map((id) => io.sockets.sockets.get(id)?.data.user)
+        .filter(Boolean);
       io.to(roomId).emit("users-updated", { users });
     }
   });
 
+  // latency
   socket.on("ping", (ts) => socket.emit("pong", ts));
 
-  // signaling: forward, with tiny SDP munging for Opus/ptime
+  // signaling + SDP munge
   socket.on("signal", ({ to, roomId, data }) => {
     if (data?.sdp?.sdp) data.sdp.sdp = preferOpus(data.sdp.sdp);
     io.to(to).emit("signal", { from: socket.id, data });
-    if (data?.sdp) {
-      log("signal-sdp", (data.sdp.type || "?"), "len", String(data.sdp.sdp || "").length, "to", to);
-    } else if (data?.candidate) {
-      // keep it quiet; uncomment to debug ICE:
-      // log("ice", to);
-    }
+  });
+
+  // simple room broadcast for coordination (self-test, etc.)
+  socket.on("roomcast", ({ roomId, type, payload }) => {
+    io.to(roomId).emit(type, { from: socket.id, payload });
   });
 
   socket.on("disconnect", () => {
-    // remove from all rooms
     for (const [roomId, set] of rooms) {
       if (set.delete(socket.id)) {
-        const users = [...set].map((id) => io.sockets.sockets.get(id)?.data.user).filter(Boolean);
+        const users = [...set]
+          .map((id) => io.sockets.sockets.get(id)?.data.user)
+          .filter(Boolean);
         socket.to(roomId).emit("user-left", { id: socket.id });
         io.to(roomId).emit("users-updated", { users });
         if (set.size === 0) rooms.delete(roomId);
-        log("leave", roomId, socket.id);
       }
     }
   });
 });
 
-// ---- Diagnostics API
+// very small health endpoint
 app.get("/diag/health", (_req, res) => {
-  res.json({ ok: true, time: Date.now(), rooms: [...rooms.entries()].map(([k, v]) => [k, v.size]) });
+  res.json({ ok: true, rooms: [...rooms.entries()].map(([k, v]) => [k, v.size]) });
 });
 
-// Run a local wrtc self-test: spins up two headless peers through our signaling bus and
-// confirms inbound RTP bytes grow. Returns a detailed report.
-import { runSelfTest } from "./diagnostics/selftest.js";
-app.post("/diag/selftest", async (req, res) => {
-  try {
-    const timeoutMs = Math.min(15000, Math.max(5000, Number(req.body?.timeoutMs || 9000)));
-    const report = await runSelfTest({ serverPort: PORT, timeoutMs });
-    res.json(report);
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e?.message || String(e) });
-  }
-});
-
-// ---- Start
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => log("listening", PORT));
