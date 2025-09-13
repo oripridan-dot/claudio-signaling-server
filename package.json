@@ -38,3 +38,15 @@
   },
   "homepage": "https://github.com/yourusername/claudio-signaling-server#readme"
 }
+{
+  "name": "claudio-signaling",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5",
+    "cors": "^2.8.5"
+  }
+}
