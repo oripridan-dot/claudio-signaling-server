@@ -852,15 +852,500 @@
         let reconnectAttempts = 0;
         let maxReconnectAttempts = 5;
 
+        // Mock socket implementation for demo purposes
+        function createMockSocket() {
+            const mockSocket = {
+                id: 'mock-' + Math.random().toString(36).substr(2, 9),
+                connected: false,
+                listeners: {},
+                
+                on(event, callback) {
+                    if (!this.listeners[event]) {
+                        this.listeners[event] = [];
+                    }
+                    this.listeners[event].push(callback);
+                },
+                
+                emit(event, data) {
+                    console.log('Emitting:', event, data);
+                    
+                    // Simulate server responses
+                    setTimeout(() => {
+                        switch(event) {
+                            case 'join-room':
+                                this.trigger('joined-room', {
+                                    roomId: data.roomId,
+                                    users: [{
+                                        id: this.id,
+                                        username: data.username,
+                                        instrument: data.instrument,
+                                        audioEnabled: true
+                                    }]
+                                });
+                                break;
+                            case 'ping':
+                                this.trigger('pong', data);
+                                break;
+                            case 'chat-message':
+                                this.trigger('chat-message', {
+                                    userId: 'other-user',
+                                    username: 'Demo User',
+                                    message: `Echo: ${data.message}`
+                                });
+                                break;
+                        }
+                    }, Math.random() * 100 + 50);
+                },
+                
+                trigger(event, data) {
+                    if (this.listeners[event]) {
+                        this.listeners[event].forEach(callback => callback(data));
+                    }
+                },
+                
+                connect() {
+                    this.connected = true;
+                    setTimeout(() => {
+                        this.trigger('connect');
+                    }, 500);
+                },
+                
+                disconnect() {
+                    this.connected = false;
+                    this.trigger('disconnect');
+                }
+            };
+            
+            return mockSocket;
+        }
+
         // Initialize socket connection with error handling
         function initializeSocket() {
             try {
                 // Check if socket.io is available
                 if (typeof io === 'undefined') {
-                    console.error('Socket.io not loaded. Using mock implementation.');
-                    return createMockSocket();
+                    console.warn('Socket.io not available. Using mock implementation for demo.');
+                    socket = createMockSocket();
+                } else {
+                    socket = io({
+                        transports: ['websocket', 'polling'],
+                        timeout: 5000,
+                        reconnection: true,
+                        reconnectionAttempts: maxReconnectAttempts,
+                        reconnectionDelay: 1000
+                    });
                 }
                 
-                socket = io({
-                    transports: ['websocket', 'polling'],
-                    timeout:
+                setupSocketListeners();
+                
+                // Start connection
+                if (socket.connect) {
+                    socket.connect();
+                } else {
+                    // For mock socket
+                    setTimeout(() => socket.connect(), 100);
+                }
+                
+            } catch (error) {
+                console.error('Failed to initialize socket:', error);
+                showError('Connection failed. Please refresh the page.');
+            }
+        }
+
+        function setupSocketListeners() {
+            socket.on('connect', () => {
+                isConnecting = false;
+                reconnectAttempts = 0;
+                updateConnectionStatus('connected', 'connected to claudio');
+                addMessage('connected to claudio server', 'system');
+                enableControls();
+            });
+
+            socket.on('disconnect', (reason) => {
+                updateConnectionStatus('disconnected', 'disconnected');
+                addMessage(`disconnected: ${reason}`, 'system');
+                disableControls();
+                
+                if (reason === 'io server disconnect') {
+                    // Server disconnected us, try to reconnect
+                    setTimeout(() => {
+                        if (reconnectAttempts < maxReconnectAttempts) {
+                            reconnectAttempts++;
+                            updateConnectionStatus('connecting', `reconnecting... (${reconnectAttempts}/${maxReconnectAttempts})`);
+                            socket.connect();
+                        }
+                    }, 2000);
+                }
+            });
+
+            socket.on('connect_error', (error) => {
+                console.error('Connection error:', error);
+                updateConnectionStatus('disconnected', 'connection failed');
+                disableControls();
+            });
+
+            socket.on('joined-room', (data) => {
+                currentRoom = data.roomId;
+                document.getElementById('roomInfo').innerHTML = `in session: <strong>${data.roomId}</strong>`;
+                document.getElementById('roomInfo').className = 'room-info';
+                updateUserList(data.users);
+                addMessage(`joined session ${data.roomId}`, 'system');
+            });
+
+            socket.on('user-joined', (data) => {
+                updateUserList(data.users);
+                addMessage(`${data.user.username} joined`, 'user');
+            });
+
+            socket.on('user-left', (data) => {
+                addMessage(`${data.username} left`, 'user');
+                // You might want to update user list here too
+            });
+
+            socket.on('users-updated', (data) => {
+                updateUserList(data.users);
+            });
+
+            socket.on('chat-message', (data) => {
+                if (data.userId !== socket.id) {
+                    addMessage(`${data.username}: ${data.message}`, 'user');
+                    if (!isChatOpen) {
+                        incrementUnreadMessages();
+                    }
+                }
+            });
+
+            socket.on('pong', (timestamp) => {
+                const latency = Date.now() - timestamp;
+                const color = latency < 20 ? 'var(--success)' : latency < 50 ? 'var(--warning)' : 'var(--danger)';
+                document.getElementById('latencyResult').innerHTML = `<span style="color: ${color};">${latency}ms</span>`;
+            });
+
+            socket.on('error', (error) => {
+                console.error('Socket error:', error);
+                showError(`Error: ${error.message || error}`);
+            });
+        }
+
+        function updateConnectionStatus(status, message) {
+            const statusElement = document.getElementById('connectionStatus');
+            statusElement.className = `status-bar status-${status}`;
+            
+            let content = '<div class="status-dot"></div>';
+            if (status === 'connecting') {
+                content += '<span class="loading-spinner"></span>&nbsp;&nbsp;';
+            }
+            content += message;
+            
+            statusElement.innerHTML = content;
+        }
+
+        function enableControls() {
+            document.getElementById('joinBtn').disabled = false;
+            document.getElementById('createBtn').disabled = false;
+            document.getElementById('latencyBtn').disabled = false;
+        }
+
+        function disableControls() {
+            document.getElementById('joinBtn').disabled = true;
+            document.getElementById('createBtn').disabled = true;
+            document.getElementById('latencyBtn').disabled = true;
+        }
+
+        function showError(message) {
+            addMessage(message, 'error');
+            // You could also show a toast notification here
+        }
+
+        // Room management
+        function joinRoom() {
+            const roomId = document.getElementById('roomId').value.trim().toUpperCase();
+            const username = document.getElementById('username').value.trim();
+            const instrument = document.getElementById('instrument').value;
+            
+            if (!roomId || !username) {
+                showError('Please enter both room code and name');
+                return;
+            }
+            
+            if (roomId.length < 3) {
+                showError('Room code must be at least 3 characters');
+                return;
+            }
+            
+            if (username.length < 2) {
+                showError('Name must be at least 2 characters');
+                return;
+            }
+            
+            socket.emit('join-room', { roomId, username, instrument });
+            addMessage(`attempting to join ${roomId}...`, 'system');
+        }
+
+        function createRoom() {
+            const roomId = generateRoomCode();
+            document.getElementById('roomId').value = roomId;
+            addMessage(`created session: ${roomId}`, 'system');
+            
+            // Auto-focus username field
+            const usernameInput = document.getElementById('username');
+            if (!usernameInput.value.trim()) {
+                usernameInput.focus();
+            }
+        }
+
+        function generateRoomCode() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let result = '';
+            for (let i = 0; i < 6; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return result;
+        }
+
+        function testLatency() {
+            if (!socket || !socket.connected) {
+                showError('Not connected to server');
+                return;
+            }
+            
+            pingTime = Date.now();
+            document.getElementById('latencyResult').innerHTML = '<span class="loading-spinner"></span>';
+            socket.emit('ping', pingTime);
+            
+            // Timeout after 5 seconds
+            setTimeout(() => {
+                const current = document.getElementById('latencyResult').innerHTML;
+                if (current.includes('loading-spinner')) {
+                    document.getElementById('latencyResult').innerHTML = '<span style="color: var(--danger);">timeout</span>';
+                }
+            }, 5000);
+        }
+
+        // User list management
+        function updateUserList(users) {
+            const userList = document.getElementById('userList');
+            
+            if (!users || users.length === 0) {
+                userList.innerHTML = '';
+                return;
+            }
+            
+            userList.innerHTML = users.map(user => `
+                <div class="user-item" role="listitem">
+                    <div class="user-info">
+                        <div class="user-name">${escapeHtml(user.username)}</div>
+                        <div class="user-instrument">${escapeHtml(user.instrument)}</div>
+                    </div>
+                    <div class="user-controls">
+                        <div class="user-audio ${user.audioEnabled ? '' : 'muted'}" 
+                             title="${user.audioEnabled ? 'Audio enabled' : 'Audio muted'}">
+                            ${user.audioEnabled ? '🔊' : '🔇'}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Chat functionality
+        function toggleChat() {
+            const chatPanel = document.getElementById('chatPanel');
+            isChatOpen = !isChatOpen;
+            
+            chatPanel.classList.toggle('open', isChatOpen);
+            
+            if (isChatOpen) {
+                clearUnreadMessages();
+                // Focus input when opening
+                setTimeout(() => {
+                    document.getElementById('messageInput').focus();
+                }, 300);
+            }
+        }
+
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+            
+            if (!message) return;
+            
+            if (!socket || !socket.connected) {
+                showError('Not connected to server');
+                return;
+            }
+            
+            if (!currentRoom) {
+                showError('Not in a session');
+                return;
+            }
+            
+            if (message.length > 200) {
+                showError('Message too long (max 200 characters)');
+                return;
+            }
+            
+            socket.emit('chat-message', { message, roomId: currentRoom });
+            addMessage(`you: ${message}`, 'own');
+            messageInput.value = '';
+        }
+
+        function handleChatKeydown(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                sendMessage();
+            } else if (event.key === 'Escape') {
+                toggleChat();
+            }
+        }
+
+        function addMessage(message, type = 'info') {
+            const messages = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.className = `message message-${type}`;
+            
+            const time = new Date().toLocaleTimeString([], {
+                hour: '2-digit', 
+                minute: '2-digit'
+            });
+            
+            div.innerHTML = `<span class="message-time">${time}</span>${escapeHtml(message)}`;
+            messages.appendChild(div);
+            
+            // Auto-scroll to bottom
+            messages.scrollTop = messages.scrollHeight;
+            
+            // Keep only last 100 messages for performance
+            while (messages.children.length > 100) {
+                messages.removeChild(messages.firstChild);
+            }
+        }
+
+        function incrementUnreadMessages() {
+            unreadMessages++;
+            updateChatBadge();
+        }
+
+        function clearUnreadMessages() {
+            unreadMessages = 0;
+            updateChatBadge();
+        }
+
+        function updateChatBadge() {
+            const badge = document.getElementById('chatBadge');
+            const chatToggle = document.getElementById('chatToggle');
+            
+            if (unreadMessages > 0) {
+                badge.textContent = unreadMessages > 99 ? '99+' : unreadMessages.toString();
+                badge.style.display = 'flex';
+                chatToggle.classList.add('has-unread');
+            } else {
+                badge.style.display = 'none';
+                chatToggle.classList.remove('has-unread');
+            }
+        }
+
+        // Talkback functionality
+        function startTalkback(event) {
+            if (event) event.preventDefault();
+            
+            if (!isTalking && socket && socket.connected) {
+                isTalking = true;
+                document.getElementById('talkbackBtn').classList.add('active');
+                
+                // TODO: Start audio recording/transmission
+                console.log('talkback started');
+                
+                // Prevent default touch behavior
+                if (event && event.type === 'touchstart') {
+                    event.preventDefault();
+                }
+            }
+        }
+
+        function stopTalkback(event) {
+            if (event) event.preventDefault();
+            
+            if (isTalking) {
+                isTalking = false;
+                document.getElementById('talkbackBtn').classList.remove('active');
+                
+                // TODO: Stop audio recording/transmission
+                console.log('talkback stopped');
+            }
+        }
+
+        // Utility functions
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatRoomCode(input) {
+            return input.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 10);
+        }
+
+        // Event listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize socket connection
+            initializeSocket();
+            
+            // Room code formatting
+            const roomIdInput = document.getElementById('roomId');
+            roomIdInput.addEventListener('input', (e) => {
+                const formatted = formatRoomCode(e.target.value);
+                if (e.target.value !== formatted) {
+                    e.target.value = formatted;
+                }
+            });
+            
+            // Username trimming
+            const usernameInput = document.getElementById('username');
+            usernameInput.addEventListener('blur', (e) => {
+                e.target.value = e.target.value.trim();
+            });
+            
+            // Prevent context menu on talkback button
+            document.getElementById('talkbackBtn').addEventListener('contextmenu', e => {
+                e.preventDefault();
+            });
+            
+            // Handle touch events for better mobile experience
+            document.getElementById('talkbackBtn').addEventListener('touchstart', startTalkback, { passive: false });
+            document.getElementById('talkbackBtn').addEventListener('touchend', stopTalkback, { passive: false });
+            
+            // Close chat with escape key
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && isChatOpen) {
+                    toggleChat();
+                }
+            });
+            
+            // Handle page visibility changes
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden && isChatOpen) {
+                    clearUnreadMessages();
+                }
+            });
+            
+            // Initial focus
+            if (roomIdInput.value) {
+                usernameInput.focus();
+            } else {
+                roomIdInput.focus();
+            }
+        });
+
+        // Handle page unload
+        window.addEventListener('beforeunload', () => {
+            if (socket && socket.connected) {
+                socket.disconnect();
+            }
+        });
+
+        // Prevent zoom on mobile when focusing inputs
+        document.addEventListener('touchstart', () => {
+            const metaViewport = document.querySelector('meta[name=viewport]');
+            metaViewport.content = 'width=device-width, initial-scale=1.0, user-scalable=no';
+        });
+    </script>
