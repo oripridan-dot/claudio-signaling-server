@@ -1,47 +1,81 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <title>Claudio v5.4.0</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <style>
+        :root {
+            --primary: #3b82f6;
+            --primary-light: rgba(59, 130, 246, 0.2);
+            --primary-border: rgba(59, 130, 246, 0.4);
+            --success: #22c55e;
+            --success-light: rgba(34, 197, 94, 0.15);
+            --success-border: rgba(34, 197, 94, 0.3);
+            --danger: #ef4444;
+            --danger-light: rgba(239, 68, 68, 0.15);
+            --danger-border: rgba(239, 68, 68, 0.4);
+            --warning: #f59e0b;
+            --bg-primary: #0a0a0a;
+            --bg-secondary: rgba(20, 20, 20, 0.8);
+            --bg-tertiary: rgba(30, 30, 30, 0.8);
+            --bg-input: rgba(40, 40, 40, 0.8);
+            --border-primary: rgba(40, 40, 40, 0.8);
+            --border-secondary: rgba(60, 60, 60, 0.8);
+            --text-primary: #ffffff;
+            --text-secondary: #e0e0e0;
+            --text-muted: #888;
+            --text-disabled: #666;
+        }
+        
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
         
         body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0a0a0a;
-            color: #e0e0e0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
             min-height: 100vh;
             line-height: 1.4;
             overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
         
         .container {
             max-width: 600px;
             margin: 0 auto;
             padding: 20px;
+            padding-bottom: 100px; /* Space for floating buttons */
         }
         
         .header {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 30px;
             padding: 20px 0;
         }
         
         .logo {
-            font-size: clamp(1.8rem, 5vw, 2.5rem);
-            font-weight: 300;
-            color: #ffffff;
+            font-size: clamp(2rem, 6vw, 2.8rem);
+            font-weight: 200;
+            color: var(--text-primary);
             margin-bottom: 8px;
             letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         
         .tagline {
             font-size: 0.9rem;
-            color: #888;
+            color: var(--text-muted);
             font-weight: 400;
         }
         
@@ -49,64 +83,83 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 12px 20px;
-            margin-bottom: 30px;
-            border-radius: 8px;
+            padding: 14px 20px;
+            margin-bottom: 24px;
+            border-radius: 12px;
             font-size: 0.85rem;
             font-weight: 500;
             transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
         }
         
         .status-connected {
-            background: rgba(34, 197, 94, 0.15);
-            border: 1px solid rgba(34, 197, 94, 0.3);
-            color: #22c55e;
+            background: var(--success-light);
+            border: 1px solid var(--success-border);
+            color: var(--success);
         }
         
         .status-disconnected {
-            background: rgba(239, 68, 68, 0.15);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #ef4444;
+            background: var(--danger-light);
+            border: 1px solid var(--danger-border);
+            color: var(--danger);
+        }
+        
+        .status-connecting {
+            background: rgba(251, 191, 36, 0.15);
+            border: 1px solid rgba(251, 191, 36, 0.3);
+            color: #fbbf24;
         }
         
         .status-dot {
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            margin-right: 8px;
+            margin-right: 10px;
             background: currentColor;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
         }
         
         .card {
-            background: rgba(20, 20, 20, 0.8);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(40, 40, 40, 0.8);
-            border-radius: 12px;
+            background: var(--bg-secondary);
+            backdrop-filter: blur(15px);
+            border: 1px solid var(--border-primary);
+            border-radius: 16px;
             padding: 24px;
             margin-bottom: 20px;
+            transition: all 0.2s ease;
+        }
+        
+        .card:hover {
+            border-color: var(--border-secondary);
         }
         
         .card-title {
-            font-size: 1rem;
+            font-size: 1.05rem;
             font-weight: 600;
-            color: #ffffff;
-            margin-bottom: 16px;
+            color: var(--text-primary);
+            margin-bottom: 18px;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
         }
         
         .icon {
-            width: 16px;
-            height: 16px;
+            width: 18px;
+            height: 18px;
             opacity: 0.8;
+            flex-shrink: 0;
         }
         
         .input-group {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 12px;
-            margin-bottom: 16px;
+            margin-bottom: 18px;
         }
         
         .input-full {
@@ -114,24 +167,30 @@
         }
         
         input, select {
-            background: rgba(30, 30, 30, 0.8);
-            border: 1px solid rgba(60, 60, 60, 0.8);
-            border-radius: 8px;
-            padding: 12px 16px;
-            color: #e0e0e0;
+            background: var(--bg-input);
+            border: 1px solid var(--border-secondary);
+            border-radius: 10px;
+            padding: 14px 16px;
+            color: var(--text-secondary);
             font-size: 0.9rem;
             transition: all 0.2s ease;
             width: 100%;
+            font-family: inherit;
         }
         
         input:focus, select:focus {
             outline: none;
-            border-color: #3b82f6;
-            background: rgba(40, 40, 40, 0.8);
+            border-color: var(--primary);
+            background: rgba(50, 50, 50, 0.8);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
         }
         
         input::placeholder {
-            color: #666;
+            color: var(--text-disabled);
+        }
+        
+        select {
+            cursor: pointer;
         }
         
         .button-group {
@@ -141,11 +200,11 @@
         }
         
         .btn {
-            background: rgba(59, 130, 246, 0.2);
-            border: 1px solid rgba(59, 130, 246, 0.4);
-            color: #3b82f6;
-            padding: 12px 20px;
-            border-radius: 8px;
+            background: var(--primary-light);
+            border: 1px solid var(--primary-border);
+            color: var(--primary);
+            padding: 14px 20px;
+            border-radius: 10px;
             font-size: 0.85rem;
             font-weight: 500;
             cursor: pointer;
@@ -155,13 +214,25 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 6px;
+            gap: 8px;
+            font-family: inherit;
+            user-select: none;
         }
         
-        .btn:hover {
+        .btn:hover:not(:disabled) {
             background: rgba(59, 130, 246, 0.3);
             border-color: rgba(59, 130, 246, 0.6);
             transform: translateY(-1px);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
         }
         
         .btn-secondary {
@@ -170,40 +241,89 @@
             color: #9ca3af;
         }
         
-        .btn-secondary:hover {
+        .btn-secondary:hover:not(:disabled) {
             background: rgba(107, 114, 128, 0.3);
             border-color: rgba(107, 114, 128, 0.6);
         }
         
-        .btn-talkback {
-            background: rgba(239, 68, 68, 0.2);
-            border: 1px solid rgba(239, 68, 68, 0.4);
-            color: #ef4444;
-            border-radius: 50%;
-            width: 60px;
-            height: 60px;
-            padding: 0;
+        .floating-controls {
             position: fixed;
-            bottom: 30px;
-            right: 30px;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
             z-index: 1000;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
         }
         
-        .btn-talkback:hover {
-            background: rgba(239, 68, 68, 0.3);
+        .btn-floating {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            user-select: none;
+        }
+        
+        .btn-talkback {
+            background: var(--danger-light);
+            border: 2px solid var(--danger-border);
+            color: var(--danger);
+        }
+        
+        .btn-talkback:hover:not(.active) {
+            background: rgba(239, 68, 68, 0.25);
             transform: scale(1.05);
         }
         
         .btn-talkback.active {
             background: rgba(239, 68, 68, 0.4);
             border-color: rgba(239, 68, 68, 0.8);
-            animation: pulse 1.5s infinite;
+            animation: recording-pulse 1.5s infinite;
         }
         
-        @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-            50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+        @keyframes recording-pulse {
+            0%, 100% { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            50% { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 0 10px rgba(239, 68, 68, 0); }
+        }
+        
+        .btn-chat {
+            background: var(--bg-secondary);
+            border: 2px solid var(--border-primary);
+            color: var(--text-secondary);
+        }
+        
+        .btn-chat:hover {
+            background: var(--bg-input);
+            transform: scale(1.05);
+        }
+        
+        .btn-chat.has-unread {
+            background: var(--primary-light);
+            border-color: var(--primary-border);
+            color: var(--primary);
+        }
+        
+        .notification-badge {
+            position: absolute;
+            top: -2px;
+            right: -2px;
+            background: var(--danger);
+            color: white;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            font-size: 0.7rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
         }
         
         .room-info {
@@ -213,54 +333,77 @@
         }
         
         .room-empty {
-            color: #666;
+            color: var(--text-disabled);
             font-style: italic;
         }
         
         .user-list {
             display: grid;
-            gap: 8px;
-            margin-top: 12px;
+            gap: 10px;
+            margin-top: 16px;
         }
         
         .user-item {
             display: flex;
             align-items: center;
-            justify-content: between;
-            padding: 10px 12px;
-            background: rgba(40, 40, 40, 0.5);
-            border-radius: 6px;
-            border-left: 3px solid #3b82f6;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: rgba(50, 50, 50, 0.5);
+            border-radius: 8px;
+            border-left: 3px solid var(--primary);
+            transition: all 0.2s ease;
+        }
+        
+        .user-item:hover {
+            background: rgba(60, 60, 60, 0.5);
+        }
+        
+        .user-info {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
         }
         
         .user-name {
-            flex: 1;
-            font-size: 0.85rem;
-            color: #e0e0e0;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            font-weight: 500;
         }
         
         .user-instrument {
             font-size: 0.75rem;
-            color: #888;
-            margin-left: 8px;
+            color: var(--text-muted);
+        }
+        
+        .user-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         
         .user-audio {
-            margin-left: 8px;
-            font-size: 0.85rem;
+            font-size: 1.1rem;
+            padding: 4px;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+        
+        .user-audio.muted {
+            opacity: 0.5;
         }
         
         .chat-panel {
             position: fixed;
             top: 0;
-            right: -320px;
-            width: 320px;
+            right: -100vw;
+            width: min(400px, 100vw);
             height: 100vh;
             background: rgba(15, 15, 15, 0.95);
             backdrop-filter: blur(20px);
-            border-left: 1px solid rgba(40, 40, 40, 0.8);
-            transition: right 0.3s ease;
-            z-index: 900;
+            border-left: 1px solid var(--border-primary);
+            transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 2000;
             display: flex;
             flex-direction: column;
         }
@@ -271,109 +414,288 @@
         
         .chat-header {
             padding: 20px;
-            border-bottom: 1px solid rgba(40, 40, 40, 0.8);
+            border-bottom: 1px solid var(--border-primary);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            background: rgba(20, 20, 20, 0.8);
+        }
+        
+        .chat-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: var(--text-primary);
         }
         
         .chat-messages {
             flex: 1;
-            padding: 20px;
+            padding: 16px;
             overflow-y: auto;
             font-size: 0.85rem;
             line-height: 1.5;
+            scroll-behavior: smooth;
+        }
+        
+        .chat-messages::-webkit-scrollbar {
+            width: 4px;
+        }
+        
+        .chat-messages::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px;
         }
         
         .chat-input {
-            padding: 20px;
-            border-top: 1px solid rgba(40, 40, 40, 0.8);
+            padding: 16px;
+            border-top: 1px solid var(--border-primary);
             display: flex;
             gap: 10px;
+            background: rgba(20, 20, 20, 0.8);
+        }
+        
+        .chat-input input {
+            flex: 1;
+            background: var(--bg-input);
+            border: 1px solid var(--border-secondary);
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+        
+        .chat-input .btn {
+            min-width: auto;
+            flex: none;
+            padding: 12px 16px;
         }
         
         .message {
             margin-bottom: 12px;
             padding: 8px 0;
+            word-wrap: break-word;
         }
         
         .message-time {
-            color: #666;
-            font-size: 0.75rem;
+            color: var(--text-disabled);
+            font-size: 0.7rem;
             margin-right: 8px;
+            opacity: 0.8;
         }
         
-        .message-system { color: #22c55e; }
-        .message-user { color: #3b82f6; }
+        .message-system { color: var(--success); }
+        .message-user { color: var(--primary); }
         .message-own { color: #8b5cf6; }
-        .message-error { color: #ef4444; }
+        .message-error { color: var(--danger); }
         
         .latency-display {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-top: 12px;
+            margin-top: 16px;
+            flex-wrap: wrap;
+            gap: 12px;
         }
         
         .latency-value {
             font-weight: 600;
-            font-size: 0.9rem;
-        }
-        
-        .chat-toggle {
-            position: fixed;
-            top: 30px;
-            right: 30px;
-            background: rgba(30, 30, 30, 0.8);
-            border: 1px solid rgba(60, 60, 60, 0.8);
-            color: #e0e0e0;
-            border-radius: 8px;
-            padding: 10px;
-            cursor: pointer;
-            z-index: 1001;
-            transition: all 0.2s ease;
-        }
-        
-        .chat-toggle:hover {
-            background: rgba(40, 40, 40, 0.8);
+            font-size: 1rem;
+            padding: 8px 12px;
+            background: rgba(50, 50, 50, 0.5);
+            border-radius: 6px;
+            min-width: 60px;
+            text-align: center;
         }
         
         .close-btn {
             background: none;
             border: none;
-            color: #888;
-            font-size: 1.2rem;
+            color: var(--text-muted);
+            font-size: 1.4rem;
             cursor: pointer;
-            padding: 0;
-            width: 24px;
-            height: 24px;
+            padding: 4px;
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
-        /* Mobile responsive */
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-secondary);
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top: 2px solid currentColor;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Mobile specific styles */
         @media (max-width: 768px) {
             .container {
-                padding: 16px;
+                padding: 12px;
+                padding-bottom: 80px;
+            }
+            
+            .header {
+                margin-bottom: 20px;
+                padding: 16px 0;
+            }
+            
+            .logo {
+                font-size: 2.2rem;
+            }
+            
+            .card {
+                padding: 20px;
+                margin-bottom: 16px;
+                border-radius: 12px;
             }
             
             .input-group {
                 grid-template-columns: 1fr;
+                gap: 10px;
+                margin-bottom: 16px;
+            }
+            
+            input, select {
+                padding: 16px;
+                font-size: 16px; /* Prevents zoom on iOS */
+                border-radius: 8px;
+            }
+            
+            .btn {
+                padding: 16px 20px;
+                font-size: 0.9rem;
+                min-width: 100px;
+            }
+            
+            .floating-controls {
+                bottom: 16px;
+                right: 16px;
+                gap: 10px;
+            }
+            
+            .btn-floating {
+                width: 52px;
+                height: 52px;
             }
             
             .chat-panel {
                 width: 100vw;
-                right: -100vw;
             }
             
+            .chat-header {
+                padding: 16px;
+            }
+            
+            .chat-messages {
+                padding: 12px;
+            }
+            
+            .chat-input {
+                padding: 12px;
+            }
+            
+            .user-item {
+                padding: 14px;
+            }
+            
+            .user-name {
+                font-size: 0.95rem;
+            }
+        }
+        
+        /* Extra small screens */
+        @media (max-width: 480px) {
+            .container {
+                padding: 8px;
+                padding-bottom: 70px;
+            }
+            
+            .logo {
+                font-size: 1.8rem;
+            }
+            
+            .card {
+                padding: 16px;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            .btn {
+                min-width: 100%;
+            }
+            
+            .floating-controls {
+                bottom: 12px;
+                right: 12px;
+            }
+            
+            .btn-floating {
+                width: 48px;
+                height: 48px;
+            }
+        }
+        
+        /* Landscape mobile */
+        @media (max-height: 500px) and (orientation: landscape) {
+            .container {
+                padding-bottom: 60px;
+            }
+            
+            .header {
+                margin-bottom: 16px;
+                padding: 10px 0;
+            }
+            
+            .logo {
+                font-size: 1.6rem;
+            }
+            
+            .card {
+                padding: 16px;
+                margin-bottom: 12px;
+            }
+        }
+        
+        /* Dark mode media query support */
+        @media (prefers-color-scheme: dark) {
+            /* Already dark by default */
+        }
+        
+        /* Reduced motion support */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+        
+        /* Print styles */
+        @media print {
+            .floating-controls,
+            .chat-panel,
             .btn-talkback {
-                bottom: 20px;
-                right: 20px;
-                width: 50px;
-                height: 50px;
-            }
-            
-            .chat-toggle {
-                top: 20px;
-                right: 20px;
+                display: none !important;
             }
         }
     </style>
@@ -385,9 +707,9 @@
             <div class="tagline">ultra-low latency music collaboration</div>
         </div>
         
-        <div id="connectionStatus" class="status-bar status-disconnected">
+        <div id="connectionStatus" class="status-bar status-connecting">
             <div class="status-dot"></div>
-            connecting...
+            <span class="loading-spinner"></span>&nbsp;&nbsp;connecting...
         </div>
         
         <div class="card">
@@ -400,31 +722,32 @@
             </div>
             
             <div class="input-group">
-                <input type="text" id="roomId" placeholder="room code" value="STUDIO1">
-                <input type="text" id="username" placeholder="your name" value="musician">
+                <input type="text" id="roomId" placeholder="room code" value="STUDIO1" maxlength="10" autocomplete="off" autocorrect="off" autocapitalize="characters">
+                <input type="text" id="username" placeholder="your name" value="musician" maxlength="20" autocomplete="name" autocorrect="off">
             </div>
             
             <div class="input-group">
-                <select id="instrument" class="input-full">
+                <select id="instrument" class="input-full" aria-label="Select your instrument">
                     <option value="guitar">🎸 guitar</option>
                     <option value="bass">🎸 bass</option>
                     <option value="drums">🥁 drums</option>
                     <option value="piano">🎹 piano</option>
                     <option value="vocals">🎤 vocals</option>
                     <option value="violin">🎻 violin</option>
+                    <option value="saxophone">🎷 saxophone</option>
                     <option value="other">🎵 other</option>
                 </select>
             </div>
             
             <div class="button-group">
-                <button class="btn" onclick="joinRoom()">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <button class="btn" onclick="joinRoom()" id="joinBtn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M15 3h6v6M14 10l6.1-6.1M9 21H3v-6M10 14l-6.1 6.1"/>
                     </svg>
                     join
                 </button>
-                <button class="btn btn-secondary" onclick="createRoom()">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <button class="btn btn-secondary" onclick="createRoom()" id="createBtn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M12 5v14M5 12h14"/>
                     </svg>
                     create
@@ -446,7 +769,7 @@
                 not in a session
             </div>
             
-            <div id="userList" class="user-list"></div>
+            <div id="userList" class="user-list" role="list" aria-label="Connected users"></div>
         </div>
         
         <div class="card">
@@ -461,39 +784,54 @@
             </div>
             
             <div class="latency-display">
-                <button class="btn btn-secondary" onclick="testLatency()">test latency</button>
+                <button class="btn btn-secondary" onclick="testLatency()" id="latencyBtn">
+                    test latency
+                </button>
                 <div id="latencyResult" class="latency-value">-</div>
             </div>
         </div>
     </div>
     
-    <!-- Talkback Button -->
-    <button id="talkbackBtn" class="btn-talkback" onmousedown="startTalkback()" onmouseup="stopTalkback()" ontouchstart="startTalkback()" ontouchend="stopTalkback()">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-            <line x1="12" y1="19" x2="12" y2="23"/>
-            <line x1="8" y1="23" x2="16" y2="23"/>
-        </svg>
-    </button>
-    
-    <!-- Chat Toggle -->
-    <button class="chat-toggle" onclick="toggleChat()">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-        </svg>
-    </button>
+    <!-- Floating Controls -->
+    <div class="floating-controls">
+        <button class="btn-floating btn-chat" onclick="toggleChat()" aria-label="Toggle chat" id="chatToggle">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            <div id="chatBadge" class="notification-badge" style="display: none;">0</div>
+        </button>
+        
+        <button id="talkbackBtn" class="btn-floating btn-talkback" 
+                onmousedown="startTalkback()" 
+                onmouseup="stopTalkback()"
+                ontouchstart="startTalkback(event)" 
+                ontouchend="stopTalkback(event)"
+                aria-label="Hold to talk">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="23"/>
+                <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+        </button>
+    </div>
     
     <!-- Chat Panel -->
-    <div id="chatPanel" class="chat-panel">
+    <div id="chatPanel" class="chat-panel" role="dialog" aria-labelledby="chatTitle">
         <div class="chat-header">
-            <span style="font-weight: 600;">chat</span>
-            <button class="close-btn" onclick="toggleChat()">×</button>
+            <div class="chat-title" id="chatTitle">chat</div>
+            <button class="close-btn" onclick="toggleChat()" aria-label="Close chat">×</button>
         </div>
-        <div id="chatMessages" class="chat-messages"></div>
+        <div id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-label="Chat messages"></div>
         <div class="chat-input">
-            <input type="text" id="messageInput" placeholder="type message..." onkeypress="sendMessageOnEnter(event)" style="flex: 1;">
-            <button class="btn" onclick="sendMessage()" style="min-width: auto; flex: none; padding: 12px 16px;">
+            <input type="text" 
+                   id="messageInput" 
+                   placeholder="type message..." 
+                   onkeydown="handleChatKeydown(event)"
+                   maxlength="200"
+                   autocomplete="off"
+                   aria-label="Chat message input">
+            <button class="btn" onclick="sendMessage()" aria-label="Send message">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="22" y1="2" x2="11" y2="13"/>
                     <polygon points="22,2 15,22 11,13 2,9 22,2"/>
@@ -502,149 +840,27 @@
         </div>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
     <script>
-        const socket = io();
+        // Global state
+        let socket = null;
         let currentRoom = null;
         let pingTime = 0;
         let isTalking = false;
+        let unreadMessages = 0;
+        let isChatOpen = false;
+        let isConnecting = false;
+        let reconnectAttempts = 0;
+        let maxReconnectAttempts = 5;
 
-        socket.on('connect', () => {
-            document.getElementById('connectionStatus').className = 'status-bar status-connected';
-            document.getElementById('connectionStatus').innerHTML = '<div class="status-dot"></div>connected';
-            addMessage('connected to claudio server', 'system');
-        });
-
-        socket.on('disconnect', () => {
-            document.getElementById('connectionStatus').className = 'status-bar status-disconnected';
-            document.getElementById('connectionStatus').innerHTML = '<div class="status-dot"></div>disconnected';
-            addMessage('disconnected from server', 'system');
-        });
-
-        socket.on('joined-room', (data) => {
-            currentRoom = data.roomId;
-            document.getElementById('roomInfo').innerHTML = `in session: <strong>${data.roomId}</strong>`;
-            document.getElementById('roomInfo').className = 'room-info';
-            updateUserList(data.users);
-            addMessage(`joined session ${data.roomId}`, 'system');
-        });
-
-        socket.on('user-joined', (data) => {
-            updateUserList(data.users);
-            addMessage(`${data.user.username} joined`, 'user');
-        });
-
-        socket.on('user-left', (data) => {
-            addMessage(`${data.username} left`, 'user');
-        });
-
-        socket.on('chat-message', (data) => {
-            if (data.userId !== socket.id) {
-                addMessage(`${data.username}: ${data.message}`, 'user');
-            }
-        });
-
-        socket.on('pong', (timestamp) => {
-            const latency = Date.now() - timestamp;
-            const color = latency < 20 ? '#22c55e' : latency < 50 ? '#f59e0b' : '#ef4444';
-            document.getElementById('latencyResult').innerHTML = `<span style="color: ${color};">${latency}ms</span>`;
-        });
-
-        socket.on('error', (error) => {
-            addMessage(`error: ${error.message}`, 'error');
-        });
-
-        function joinRoom() {
-            const roomId = document.getElementById('roomId').value.toUpperCase();
-            const username = document.getElementById('username').value;
-            const instrument = document.getElementById('instrument').value;
-            
-            if (!roomId || !username) {
-                alert('please enter room code and name');
-                return;
-            }
-            
-            socket.emit('join-room', { roomId, username, instrument });
-        }
-
-        function createRoom() {
-            const roomId = Math.random().toString(36).substr(2, 6).toUpperCase();
-            document.getElementById('roomId').value = roomId;
-            addMessage(`created session: ${roomId}`, 'system');
-        }
-
-        function testLatency() {
-            pingTime = Date.now();
-            document.getElementById('latencyResult').textContent = '...';
-            socket.emit('ping', pingTime);
-        }
-
-        function toggleChat() {
-            const chatPanel = document.getElementById('chatPanel');
-            chatPanel.classList.toggle('open');
-        }
-
-        function sendMessage() {
-            const message = document.getElementById('messageInput').value;
-            if (message && currentRoom) {
-                socket.emit('chat-message', { message });
-                addMessage(`you: ${message}`, 'own');
-                document.getElementById('messageInput').value = '';
-            }
-        }
-
-        function sendMessageOnEnter(event) {
-            if (event.key === 'Enter') {
-                sendMessage();
-            }
-        }
-
-        function startTalkback() {
-            if (!isTalking) {
-                isTalking = true;
-                document.getElementById('talkbackBtn').classList.add('active');
-                // TODO: Start audio transmission
-                console.log('talkback started');
-            }
-        }
-
-        function stopTalkback() {
-            if (isTalking) {
-                isTalking = false;
-                document.getElementById('talkbackBtn').classList.remove('active');
-                // TODO: Stop audio transmission
-                console.log('talkback stopped');
-            }
-        }
-
-        function addMessage(message, type = 'info') {
-            const messages = document.getElementById('chatMessages');
-            const div = document.createElement('div');
-            div.className = `message message-${type}`;
-            const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-            div.innerHTML = `<span class="message-time">${time}</span>${message}`;
-            messages.appendChild(div);
-            messages.scrollTop = messages.scrollHeight;
-        }
-
-        function updateUserList(users) {
-            const userList = document.getElementById('userList');
-            if (users.length === 0) {
-                userList.innerHTML = '';
-                return;
-            }
-            
-            userList.innerHTML = users.map(user => `
-                <div class="user-item">
-                    <div class="user-name">${user.username}</div>
-                    <div class="user-instrument">${user.instrument}</div>
-                    <div class="user-audio">${user.audioEnabled ? '🔊' : '🔇'}</div>
-                </div>
-            `).join('');
-        }
-
-        // Prevent context menu on talkback button
-        document.getElementById('talkbackBtn').addEventListener('contextmenu', e => e.preventDefault());
-    </script>
-</body>
-</html>
+        // Initialize socket connection with error handling
+        function initializeSocket() {
+            try {
+                // Check if socket.io is available
+                if (typeof io === 'undefined') {
+                    console.error('Socket.io not loaded. Using mock implementation.');
+                    return createMockSocket();
+                }
+                
+                socket = io({
+                    transports: ['websocket', 'polling'],
+                    timeout:
