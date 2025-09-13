@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Claudio — audio path test</title>
+  <title>Claudio — audio path test (silent-track fix)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    :root { --bg:#0a0a0a; --card:#171717; --text:#e5e7eb; --muted:#9ca3af; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --pri:#3b82f6; }
+    :root { --bg:#0a0a0a; --card:#171717; --text:#e5e7eb; --muted:#9ca3af; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
     *{box-sizing:border-box} body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text)}
     .wrap{max-width:760px;margin:0 auto;padding:24px} h1{margin:0 0 10px}
     .card{background:var(--card);border:1px solid #262626;border-radius:12px;padding:16px;margin:12px 0}
@@ -13,7 +13,8 @@
     input,select{background:#101010;color:var(--text);border:1px solid #2a2a2a;padding:10px 12px;border-radius:8px}
     button{background:#0f172a;color:#cbd5e1;border:1px solid #334155;padding:10px 14px;border-radius:8px;cursor:pointer}
     button:hover{border-color:#475569} button.primary{background:#0b1220;border-color:#1e3a8a;color:#dbeafe}
-    button.danger{background:#2a0f12;border-color:#7f1d1d;color:#fecaca} .pill{padding:4px 8px;border-radius:999px;background:#111827;border:1px solid #1f2937;color:#9ca3af}
+    button.danger{background:#2a0f12;border-color:#7f1d1d;color:#fecaca}
+    .pill{padding:4px 8px;border-radius:999px;background:#111827;border:1px solid #1f2937;color:#9ca3af}
     .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)} .muted{color:var(--muted)}
     .log{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;background:#0b0b0b;border:1px solid #1f2937;border-radius:8px;padding:10px;height:140px;overflow:auto}
     .users{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
@@ -24,7 +25,7 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>Claudio — audio path test</h1>
+    <h1>Claudio — audio path test (silent-track fix)</h1>
     <div id="status" class="pill">socket: connecting…</div>
 
     <!-- Devices -->
@@ -66,7 +67,8 @@
   <script>
     // ===== Globals =====
     let socket=null, roomId=null, audioUnlocked=false;
-    let localStream=null, localTrack=null, inAnalyser=null, inBuf=null, rafVU=null;
+    let localStream=null, localTrack=null, silentTrack=null;
+    let inAnalyser=null, inBuf=null, rafVU=null;
 
     const peers=new Map(), senders=new Map(), audios=new Map();
     const rtcConfig={ iceServers:[{urls:'stun:stun.l.google.com:19302'}] };
@@ -75,6 +77,30 @@
     function log(...a){ const d=el('debug'); d.textContent += a.map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' ') + "\n"; d.scrollTop=d.scrollHeight; }
     function setStatus(t,c=''){ const n=el('status'); n.textContent=t; n.className='pill '+c; }
     function listUsers(u){ el('users').textContent=(u||[]).map(x=>`${x.username}${x.id===socket.id?' (you)':''}`).join(' | ') || '—'; }
+
+    // ===== AudioContext (shared) =====
+    let ctx=null;
+    async function ensureCtx(){
+      if (!ctx) ctx = new (window.AudioContext||window.webkitAudioContext)({ sampleRate: 48000 });
+      if (ctx.state==='suspended') await ctx.resume();
+      return ctx;
+    }
+
+    // ===== Silent track (placeholder) =====
+    async function getSilentTrack(){
+      if (silentTrack) return silentTrack;
+      const ac = await ensureCtx();
+      const osc = ac.createOscillator();        // any source…
+      const gain = ac.createGain();
+      gain.gain.value = 0.0;                    // …but fully muted
+      const dst = ac.createMediaStreamDestination();
+      osc.connect(gain).connect(dst);
+      osc.start();
+      silentTrack = dst.stream.getAudioTracks()[0];
+      silentTrack.enabled = true;
+      log('silent track ready');
+      return silentTrack;
+    }
 
     // ===== Devices =====
     async function refreshDevices(){
@@ -85,16 +111,13 @@
         const inSel = el('inDev'), outSel=el('outDev');
         inSel.innerHTML = mics.map(d=>`<option value="${d.deviceId}">${d.label||'mic'}</option>`).join('');
         outSel.innerHTML = outs.map(d=>`<option value="${d.deviceId}">${d.label||'speaker'}</option>`).join('');
-        // try to pre-select Bose / Built-in
         [...outSel.options].forEach(o=>{ if(/bose|airpods|headphones/i.test(o.text)) outSel.value=o.value; });
       }catch(e){ log('enumerate error', e.message||e); }
     }
 
     async function enableSound(){
       try{
-        // Create context once to satisfy autoplay; resume if needed
-        window.__ctx = window.__ctx || new (window.AudioContext||window.webkitAudioContext)();
-        if (__ctx.state==='suspended') await __ctx.resume();
+        await ensureCtx();
         audioUnlocked=true;
         document.addEventListener('click', ()=>audios.forEach(a=>a.play().catch(()=>{})), { once:true, capture:true });
         await refreshDevices();
@@ -104,10 +127,9 @@
 
     async function playTone(){
       try{
-        window.__ctx = window.__ctx || new (window.AudioContext||window.webkitAudioContext)();
-        if (__ctx.state==='suspended') await __ctx.resume();
-        const osc=__ctx.createOscillator(), g=__ctx.createGain();
-        osc.frequency.value=440; g.gain.value=0.15; osc.connect(g).connect(__ctx.destination); osc.start();
+        const ac = await ensureCtx();
+        const osc=ac.createOscillator(), g=ac.createGain();
+        osc.frequency.value=440; g.gain.value=0.15; osc.connect(g).connect(ac.destination); osc.start();
         setTimeout(()=>{ osc.stop(); }, 600);
       }catch(e){ log('tone error', e.message||e); }
     }
@@ -123,13 +145,11 @@
         }, video:false
       });
       localStream = stream;
-      localTrack = stream.getAudioTracks()[0];
+      localTrack  = stream.getAudioTracks()[0];
       log('mic ready', JSON.stringify(localTrack.getSettings()));
 
-      // setup analyser for incoming VU (we'll feed remote audio into it)
-      window.__ctx = window.__ctx || new (window.AudioContext||window.webkitAudioContext)();
-      if (__ctx.state==='suspended') await __ctx.resume();
-      inAnalyser = __ctx.createAnalyser(); inAnalyser.fftSize=1024; inBuf = new Float32Array(inAnalyser.fftSize);
+      const ac = await ensureCtx();
+      inAnalyser = ac.createAnalyser(); inAnalyser.fftSize=1024; inBuf = new Float32Array(inAnalyser.fftSize);
       startVU();
     }
 
@@ -157,10 +177,11 @@
 
       socket.on('joined-room', ({ roomId:rid, users })=>{
         roomId=rid; listUsers(users); log('joined', rid);
-        // As joiner: do NOT offer. Existing peers will call createOfferTo(this.id).
+        // Joiner never offers; existing peers will offer to us.
       });
       socket.on('user-joined', ({ user, users })=>{
-        listUsers(users); if (user.id!==socket.id) createOfferTo(user.id); // we were here first -> we offer
+        listUsers(users);
+        if (user.id!==socket.id) createOfferTo(user.id); // we were here -> we initiate
       });
       socket.on('user-left', ({ id })=> destroyPeer(id));
       socket.on('users-updated', ({ users })=> listUsers(users));
@@ -209,7 +230,8 @@
     }
     async function pttStop(e){
       if (e) e.preventDefault();
-      for (const sender of senders.values()){ try{ await sender.replaceTrack(null); }catch{} }
+      const sTrack = await getSilentTrack();
+      for (const sender of senders.values()){ try{ await sender.replaceTrack(sTrack); }catch{} }
       socket.emit('toggle-audio', false);
     }
 
@@ -217,8 +239,10 @@
     async function createPeer(peerId, initiator){
       const pc=new RTCPeerConnection(rtcConfig); peers.set(peerId, pc);
 
-      // transceiver for audio; keep sender for replaceTrack
+      // Create transceiver and immediately attach a SILENT track so the m-line is active
       const tx = pc.addTransceiver('audio', { direction:'sendrecv' });
+      const sTrack = await getSilentTrack();
+      try { await tx.sender.replaceTrack(sTrack); } catch(_) {}
       senders.set(peerId, tx.sender);
 
       pc.onicecandidate = e=>{ if(e.candidate) socket.emit('signal',{ to:peerId, roomId, data:{ candidate:e.candidate } }); };
@@ -229,19 +253,16 @@
         if (!a){ a=document.createElement('audio'); a.autoplay=true; a.playsInline=true; a.volume=1.0; document.body.appendChild(a); audios.set(peerId,a); }
         a.srcObject = ev.streams[0];
 
-        // route to selected OUTPUT using sinkId if supported
+        // route to chosen OUTPUT (sinkId)
         const outId = el('outDev').value;
         if (a.setSinkId && outId){ a.setSinkId(outId).then(()=>log('sink ->', outId)).catch(e=>log('sinkId err', e.name)); }
 
-        // also feed analyser for incoming VU
-        try{
-          window.__ctx = window.__ctx || new (window.AudioContext||window.webkitAudioContext)();
-          if (__ctx.state==='suspended') __ctx.resume();
-          const src = __ctx.createMediaStreamSource(ev.streams[0]);
-          src.connect(inAnalyser); // analyser created in ensureMic(); if not yet, it'll connect next time
-        }catch(e){}
+        // feed analyser for incoming VU
+        ensureCtx().then(ac=>{
+          try{ const src = ac.createMediaStreamSource(ev.streams[0]); inAnalyser && src.connect(inAnalyser); }catch(_){}
+        });
 
-        a.play().catch(()=>{}); // may need Enable sound
+        a.play().catch(()=>{}); // may still need Enable sound
         log('ontrack from', peerId);
       };
 
