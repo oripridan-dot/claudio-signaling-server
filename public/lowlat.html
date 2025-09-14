@@ -1,248 +1,350 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Claudio — low-latency path</title>
-<style>
-  body{margin:0;background:#0b0b0b;color:#e6e6e6;font:15px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto}
-  .row{display:flex;gap:10px;flex-wrap:wrap;margin:14px}
-  select,button,input{background:#1d1d1d;color:#e6e6e6;border:1px solid #333;border-radius:10px;padding:10px 12px}
-  button{cursor:pointer}
-  h1{font-weight:700;margin:16px 14px}
-  .meter{height:10px;background:#222;border-radius:6px;overflow:hidden;margin:12px 14px}
-  .bar{height:100%;width:0;background:linear-gradient(90deg,#22c55e,#f59e0b,#ef4444)}
-  pre{background:#0f0f0f;border:1px solid #222;border-radius:8px;padding:10px;white-space:pre-wrap}
-  .pill{padding:4px 8px;border-radius:999px;border:1px solid #333;background:#151515;font-size:12px}
-  .good{color:#22c55e;border-color:#22c55e33}
-  .warn{color:#f59e0b;border-color:#f59e0b33}
-  .bad{color:#ef4444;border-color:#ef444433}
-</style>
+  <meta charset="utf-8"/>
+  <title>Claudio — low-latency path (diagnostics)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no"/>
+  <style>
+    :root {
+      --fg:#e5e7eb; --muted:#9ca3af; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444;
+      --bg:#0b0b0d; --card:#141418; --line:#2a2a32; --blue:#3b82f6;
+    }
+    html,body{background:#000;height:100%}
+    body{margin:0;color:var(--fg);font:14px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Inter,Arial}
+    .wrap{max-width:980px;margin:28px auto 80px;padding:0 16px}
+    h1{font-size:32px;margin:0 0 16px;font-weight:700}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0}
+    input,select,button{background:#11131a;border:1px solid var(--line);color:var(--fg);padding:10px 12px;border-radius:10px}
+    button{background:#0d203f;border-color:#164a8a;cursor:pointer}
+    button.primary{background:var(--blue);border-color:#1f54b6}
+    button:disabled{opacity:.55;cursor:not-allowed}
+    .meter{height:6px;background:#1a1a1f;border-radius:6px;overflow:hidden}
+    .bar{height:100%;width:0;background:linear-gradient(90deg,#22c55e,#f59e0b,#ef4444)}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0}
+    .kvs{display:flex;gap:14px;flex-wrap:wrap}
+    .kv{padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:#0e0e12}
+    .log{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:#0a0b10;border:1px solid var(--line);border-radius:8px;padding:10px;min-height:140px;white-space:pre-wrap}
+    .ok{color:var(--ok)} .warn{color:var(--warn)} .err{color:var(--err)} .muted{color:var(--muted)}
+    small{color:var(--muted)}
+  </style>
 </head>
 <body>
-<h1>Claudio — low-latency path</h1>
+<div class="wrap">
+  <h1>Claudio — low-latency path</h1>
 
-<div class="row">
-  <input id="room" value="STUDIO1" style="min-width:120px" />
-  <input id="name" value="musician" style="min-width:120px" />
-  <button id="join">Join</button>
-  <button id="ping">Ping</button>
-  <span id="rtt" class="pill">rtt: –</span>
-  <span id="path" class="pill">path: –</span>
-  <span id="transport" class="pill">transport: –</span>
-</div>
+  <div class="row">
+    <input id="room" value="STUDIO1" style="width:160px" />
+    <input id="name" value="1" style="width:100px" />
+    <button id="btnJoin">Join</button>
+    <button id="btnPing">Ping</button>
+    <span id="rtt" class="kv">rtt: –</span>
+    <span id="path" class="kv">path: –</span>
+    <span id="transport" class="kv">transport: –</span>
+  </div>
 
-<div class="row">
-  <select id="mic"></select>
-  <select id="sink"></select>
-  <button id="refresh">Refresh devices</button>
-</div>
+  <div class="row">
+    <select id="micSelect" style="min-width:300px"></select>
+    <select id="spkSelect" style="min-width:320px"></select>
+    <button id="refresh">Refresh devices</button>
+  </div>
 
-<div class="row">
-  <button id="enable">Enable sound</button>
-  <button id="ptt" disabled>🎙️ hold to talk</button>
-  <span id="peers" class="pill">peers: 0</span>
-</div>
+  <div class="row">
+    <button id="enable" class="primary">Enable sound</button>
+    <button id="ptt" disabled>hold to talk</button>
+    <span id="peers" class="kv">peers: 0</span>
+    <button id="runDiag" class="">Run diagnostics</button>
+  </div>
 
-<div class="meter"><div id="vu" class="bar"></div></div>
+  <div class="meter"><div id="lvl" class="bar"></div></div>
 
-<div class="row" style="flex-direction:column;gap:8px">
-  <pre id="log">ready</pre>
+  <div class="card">
+    <div class="kvs">
+      <div class="kv">socket: <span id="sockState" class="muted">connecting…</span></div>
+      <div class="kv">wizard: <span id="wizState" class="muted">idle</span></div>
+      <div class="kv">loopback: <span id="loopState" class="muted">idle</span></div>
+    </div>
+  </div>
+
+  <div id="log" class="log">ready</div>
+  <small>Tip: use wired mic/output for true low latency. Bluetooth adds 120–200 ms by itself.</small>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
-const $ = id => document.getElementById(id);
-const log = (...a)=>{$('log').textContent += "\n"+a.join(' ')};
+/* ====== globals ====== */
+const logEl = document.getElementById('log');
+const lvlEl = document.getElementById('lvl');
+const rttEl = document.getElementById('rtt');
+const pathEl = document.getElementById('path');
+const transportEl = document.getElementById('transport');
+const sockStateEl = document.getElementById('sockState');
+const wizStateEl = document.getElementById('wizState');
+const loopStateEl = document.getElementById('loopState');
+const peersEl = document.getElementById('peers');
 
-let ac, outNode, micStream, sendStream, socket, pc, localSender, recv;
-let sinkId = null, micId = null, started = false;
+const micSel = document.getElementById('micSelect');
+const spkSel = document.getElementById('spkSelect');
 
-const SIGNAL_URL = location.origin.replace(/\/$/, '');
-const ICE = [
-  { urls: ['stun:stun.l.google.com:19302','stun:global.stun.twilio.com:3478'] }
-];
+const btnEnable = document.getElementById('enable');
+const btnPTT = document.getElementById('ptt');
+const btnJoin = document.getElementById('btnJoin');
+const btnPing = document.getElementById('btnPing');
+const btnRefresh = document.getElementById('refresh');
+const btnDiag = document.getElementById('runDiag');
 
-async function listDevices() {
-  const devs = await navigator.mediaDevices.enumerateDevices();
-  const mics = devs.filter(d=>d.kind==='audioinput');
-  const outs = devs.filter(d=>d.kind==='audiooutput');
-  $('mic').innerHTML  = mics.map(d=>`<option value="${d.deviceId}">${d.label||'Mic'}</option>`).join('');
-  $('sink').innerHTML = outs.map(d=>`<option value="${d.deviceId}">${d.label||'Output'}</option>`).join('');
+const roomEl = document.getElementById('room');
+const nameEl = document.getElementById('name');
+
+let socket;
+let micStream=null, meterRAF=null, audioCtx=null, toneOsc=null;
+let pcSend=null, pcRecv=null, loopSink=null, loopStarted=false;
+let autoPingTimer=null;
+let lastCandidates = {type:'-', protocol:'-'};
+
+function log(s, cls) {
+  const line = (cls ? `<span class="${cls}">${s}</span>` : s);
+  logEl.innerHTML += `\n${line}`;
+  logEl.scrollTop = logEl.scrollHeight;
 }
 
-async function enableAudio() {
-  micId = $('mic').value || undefined;
-
-  ac = new (window.AudioContext || window.webkitAudioContext)({
-    latencyHint: 'interactive',
-    sampleRate: 48000
+/* ====== socket ====== */
+function makeSocket() {
+  socket = io({ transports:['websocket'], path:'/socket.io' });
+  socket.on('connect', ()=>{ sockStateEl.textContent='connected'; log('socket connected'); });
+  socket.on('disconnect', r=>{ sockStateEl.textContent='disconnected'; log(`socket disconnected (${r})`, 'warn'); });
+  socket.on('users', list => {
+    peersEl.textContent = 'peers: ' + Math.max(0, (list?.length||0)-1);
   });
+  socket.on('pong', ts => {
+    const ms = Date.now()-ts;
+    rttEl.textContent = `rtt: ${ms}ms`;
+  });
+}
+makeSocket();
 
-  const gum = {
-    audio: {
-      deviceId: micId ? {exact: micId} : undefined,
-      channelCount: {ideal: 1, max: 1},
-      sampleRate: {ideal: 48000},
-      sampleSize: {ideal: 16},
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-      latency: {ideal: 0}
-    }
-  };
-
-  micStream = await navigator.mediaDevices.getUserMedia(gum);
-  sendStream = new MediaStream([micStream.getAudioTracks()[0]]);
-
-  const src = ac.createMediaStreamSource(sendStream);
-  outNode = ac.createMediaStreamDestination();
-  src.connect(outNode);
-
-  const el = new Audio();
-  el.srcObject = outNode.stream;
-  el.muted = true; // keep muted; remote audio will play automatically
-  if ('setSinkId' in el && $('sink').value) {
-    await el.setSinkId($('sink').value).catch(()=>{});
+/* ====== devices ====== */
+async function enumerate() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  fillSelect(micSel, devices.filter(d=>d.kind==='audioinput'));
+  fillSelect(spkSel, devices.filter(d=>d.kind==='audiooutput'));
+}
+function fillSelect(sel, list) {
+  const cur = sel.value;
+  sel.innerHTML = '';
+  for (const d of list) {
+    const opt = document.createElement('option');
+    opt.value = d.deviceId;
+    opt.textContent = (d.label || (d.kind==='audioinput'?'Microphone':'Speaker')) + (d.deviceId==='default'?' (Default)':'');
+    sel.appendChild(opt);
   }
-  await el.play().catch(()=>{});
-
-  $('ptt').disabled = false;
-  started = true;
-  log('mic ready');
-
-  // VU
-  const analyser = ac.createAnalyser(); analyser.fftSize = 512;
-  src.connect(analyser);
-  const data = new Uint8Array(analyser.frequencyBinCount);
-  const vu = $('vu');
-  (function draw(){
-    analyser.getByteTimeDomainData(data);
-    let peak = 0;
-    for (let i=0;i<data.length;i++){
-      const v = Math.abs(data[i]-128)/128;
-      if (v>peak) peak=v;
-    }
-    vu.style.width = Math.min(100, Math.round(peak*200))+'%';
-    requestAnimationFrame(draw);
-  })();
+  if ([...sel.options].some(o=>o.value===cur)) sel.value = cur;
 }
 
-// ---- FIXED SDP MUNGE (put Opus params on fmtp & add ptime lines) ----
-function mungeOpus(sdp) {
-  const lines = sdp.split('\r\n');
-
-  // find opus payload type from "a=rtpmap:<pt> opus/48000"
-  let opusPt = null;
-  for (const line of lines) {
-    const m = line.match(/^a=rtpmap:(\d+)\s+opus\/48000/i);
-    if (m) { opusPt = m[1]; break; }
-  }
-  if (!opusPt) return sdp; // nothing to do
-
-  // remove existing fmtp for this pt
-  const out = lines.filter(l => !new RegExp(`^a=fmtp:${opusPt}\\b`).test(l));
-
-  // insert our fmtp just after rtpmap
-  const rtpmapIdx = out.findIndex(l => new RegExp(`^a=rtpmap:${opusPt}\\b`).test(l));
-  const fmtp = `a=fmtp:${opusPt} minptime=10;maxptime=10;maxaveragebitrate=128000;stereo=0;useinbandfec=0`;
-
-  if (rtpmapIdx !== -1) out.splice(rtpmapIdx+1, 0, fmtp);
-  else out.push(fmtp);
-
-  // ensure a=ptime/maxptime exist (once) in the audio media section
-  // simple approach: append near the end
-  if (!out.some(l => /^a=ptime:/.test(l))) out.push('a=ptime:10');
-  if (!out.some(l => /^a=maxptime:/.test(l))) out.push('a=maxptime:10');
-
-  return out.join('\r\n');
-}
-
-async function startPeer() {
-  pc = new RTCPeerConnection({iceServers: ICE, bundlePolicy:'max-bundle'});
-
-  pc.onconnectionstatechange = ()=>log('pc state', pc.connectionState);
-  pc.oniceconnectionstatechange = ()=>log('ice', pc.iceConnectionState);
-  pc.onicecandidateerror = e=>log('ice err', e.errorText||e.error||e.type);
-
-  localSender = pc.addTrack(sendStream.getAudioTracks()[0], sendStream);
-
-  pc.ontrack = ev => {
-    const a = new Audio();
-    a.autoplay = true;
-    a.srcObject = new MediaStream([ev.track]);
-    if ('setSinkId' in a && $('sink').value) a.setSinkId($('sink').value).catch(()=>{});
-    try { ev.receiver.playoutDelayHint = 0.02; } catch {}
-  };
-
-  const tx = pc.getTransceivers()[0];
-  if (tx && window.RTCRtpSender && tx.setCodecPreferences) {
-    const c = RTCRtpSender.getCapabilities('audio').codecs
-      .filter(x => /opus/i.test(x.mimeType));
-    if (c.length) tx.setCodecPreferences(c);
-  }
-
-  // signaling
-  socket = io(SIGNAL_URL, {transports:['websocket']});
-  socket.on('connect', ()=>log('socket connected'));
-  socket.on('users', u=>$('peers').textContent=`peers: ${Math.max(0,u-1)}`);
-  socket.on('pongstamp', t=>{
-    const ms = Date.now()-t;
-    const r = $('rtt');
-    r.textContent = `rtt: ${ms}ms`;
-    r.className = 'pill ' + (ms<25?'good':ms<60?'warn':'bad');
-  });
-
-  socket.on('sdp', async msg => {
-    if (msg.type==='offer') {
-      await pc.setRemoteDescription(msg.desc);
-      const ans = await pc.createAnswer();
-      await pc.setLocalDescription(ans);
-      socket.emit('sdp', {type:'answer', desc: pc.localDescription});
-    } else if (msg.type==='answer') {
-      await pc.setRemoteDescription(msg.desc);
-    }
-  });
-  socket.on('ice', async c => { try { await pc.addIceCandidate(c); } catch(e){ log('addIce err', e.message); } });
-  pc.onicecandidate = e => { if (e.candidate) socket.emit('ice', e.candidate); };
-
-  // log selected candidate & transport
-  setInterval(async ()=>{
-    if (!pc) return;
-    const stats = await pc.getStats();
-    stats.forEach(r=>{
-      if (r.type==='transport' && r.selectedCandidatePairId) {
-        const pair = stats.get(r.selectedCandidatePairId);
-        if (pair) {
-          const l = stats.get(pair.localCandidateId);
-          const rmt = stats.get(pair.remoteCandidateId);
-          $('path').textContent = `path: ${rmt?.candidateType||'?'}`;
-          $('transport').textContent = `transport: ${l?.protocol||'?'}`;
-        }
+/* ====== mic + level meter ====== */
+async function enableSound() {
+  btnEnable.disabled = true;
+  try {
+    const constraints = {
+      audio: {
+        deviceId: micSel.value && micSel.value!=='default' ? {exact: micSel.value} : undefined,
+        channelCount: 1,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        sampleRate: 48000
       }
-    });
-  }, 700);
+    };
+    micStream = await navigator.mediaDevices.getUserMedia(constraints);
+    log('mic ready','ok');
 
-  // join & offer
-  socket.emit('join', {room:$('room').value, name:$('name').value});
-  let offer = await pc.createOffer({offerToReceiveAudio:true});
-  offer = new RTCSessionDescription({type:'offer', sdp: mungeOpus(offer.sdp)});
-  await pc.setLocalDescription(offer);
-  socket.emit('sdp', {type:'offer', desc: pc.localDescription});
+    // audio context + meter
+    audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(micStream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    src.connect(analyser);
+
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    function loop() {
+      analyser.getByteTimeDomainData(data);
+      // simple RMS
+      let sum=0; for (let i=0;i<data.length;i++){ const v=(data[i]-128)/128; sum+=v*v; }
+      const rms = Math.sqrt(sum/data.length);
+      lvlEl.style.width = Math.min(100, Math.round(rms*200)) + '%';
+      meterRAF = requestAnimationFrame(loop);
+    }
+    meterRAF && cancelAnimationFrame(meterRAF);
+    loop();
+
+    // set sinkId on a hidden audio for test tone / loopback
+    loopSink = new Audio();
+    if (loopSink.setSinkId && spkSel.value) {
+      try { await loopSink.setSinkId(spkSel.value); } catch(e){ /* ignore */ }
+    }
+    btnPTT.disabled = false;
+    wizStateEl.textContent='armed';
+    // kick diagnostics automatically after permission
+    runWizard().catch(()=>{});
+  } catch (e) {
+    log('enable error: '+ e.message, 'err');
+    btnEnable.disabled = false;
+  }
 }
 
-$('refresh').onclick = listDevices;
-$('enable').onclick  = enableAudio;
-$('join').onclick    = async ()=>{ if(!started) await enableAudio(); await startPeer(); };
-$('ping').onclick    = ()=>{ socket?.emit('pingstamp', Date.now()); };
+/* ====== PTT (push-to-talk in-room, when a peer joins) ====== */
+btnPTT.addEventListener('mousedown', ()=>socket.emit('talk', {room: roomEl.value, speaking:true}));
+btnPTT.addEventListener('mouseup',   ()=>socket.emit('talk', {room: roomEl.value, speaking:false}));
+btnPTT.addEventListener('touchstart', e=>{ e.preventDefault(); socket.emit('talk',{room:roomEl.value, speaking:true});},{passive:false});
+btnPTT.addEventListener('touchend',   e=>{ e.preventDefault(); socket.emit('talk',{room:roomEl.value, speaking:false});},{passive:false});
 
-$('ptt').onmousedown = ()=>{ if (localSender) localSender.replaceTrack(micStream.getAudioTracks()[0]); };
-$('ptt').onmouseup   = ()=>{ if (localSender) localSender.replaceTrack(null); };
-$('ptt').ontouchstart = e=>{ e.preventDefault(); $('ptt').onmousedown(); };
-$('ptt').ontouchend   = e=>{ e.preventDefault(); $('ptt').onmouseup(); };
+/* ====== auto ping ====== */
+function startAutoPing() {
+  autoPingTimer && clearInterval(autoPingTimer);
+  autoPingTimer = setInterval(()=> {
+    if (socket && socket.connected) socket.emit('ping', Date.now());
+  }, 3000);
+}
 
-navigator.mediaDevices.ondevicechange = listDevices;
-listDevices();
+/* ====== join room ====== */
+async function joinRoom() {
+  socket.emit('join-room', { roomId: roomEl.value.trim(), username: nameEl.value.trim() || 'musician' });
+  log(`joined ${roomEl.value}`, 'ok');
+}
+
+/* ====== local WebRTC loopback (no server peer needed) ====== */
+async function startLoopback() {
+  loopStateEl.textContent='starting…';
+  const ice = { iceServers: [{urls:'stun:stun.l.google.com:19302'}] };
+  pcSend = new RTCPeerConnection(ice);
+  pcRecv = new RTCPeerConnection(ice);
+
+  pcSend.onicecandidate = e => e.candidate && pcRecv.addIceCandidate(e.candidate).catch(()=>{});
+  pcRecv.onicecandidate = e => e.candidate && pcSend.addIceCandidate(e.candidate).catch(()=>{});
+
+  // capture path/transport info (from first successful candidate pair)
+  pcRecv.addEventListener('iceconnectionstatechange', ()=>{
+    const st = pcRecv.iceConnectionState;
+    if (st==='connected' || st==='completed') {
+      const trans = pcRecv.getTransceivers()[0];
+      try {
+        const s = pcRecv.sctp ? 'udp' : 'udp';
+        transportEl.textContent = 'transport: ' + s;
+      } catch {}
+    }
+  });
+  pcRecv.onicecandidate = e => {
+    if (e.candidate) {
+      lastCandidates.protocol = (e.candidate.protocol||'-').toLowerCase();
+      transportEl.textContent = 'transport: ' + lastCandidates.protocol;
+    }
+  };
+
+  // play received audio to selected sink
+  pcRecv.ontrack = ev => {
+    const el = loopSink;
+    el.srcObject = ev.streams[0];
+    el.play().catch(()=>{});
+  };
+
+  // add local mic
+  if (!micStream) throw new Error('mic not ready');
+  micStream.getAudioTracks().forEach(t=> pcSend.addTrack(t, micStream));
+
+  // create offers/answers locally (no SDP munging)
+  const offer = await pcSend.createOffer({ offerToReceiveAudio:false });
+  await pcSend.setLocalDescription(offer);
+  await pcRecv.setRemoteDescription(offer);
+  const answer = await pcRecv.createAnswer();
+  await pcRecv.setLocalDescription(answer);
+  await pcSend.setRemoteDescription(answer);
+
+  // detect selected candidate type
+  pcRecv.addEventListener('icecandidate', e=>{
+    if (e.candidate) {
+      const type = (e.candidate.type||'').toLowerCase();
+      if (type) { lastCandidates.type = type; pathEl.textContent = 'path: ' + type; }
+    }
+  });
+
+  loopStarted = true;
+  loopStateEl.textContent='running';
+  log('local loopback running','ok');
+}
+async function stopLoopback() {
+  [pcSend, pcRecv].forEach(pc=>{
+    if (pc) {
+      pc.getSenders().forEach(s=>{ try{s.track && s.track.stop();}catch{} });
+      try{ pc.close(); }catch{}
+    }
+  });
+  pcSend = pcRecv = null;
+  loopStateEl.textContent='idle';
+}
+
+/* ====== tone to output (speaker test) ====== */
+function playTone(sec=1) {
+  if (!audioCtx) return;
+  toneOsc && toneOsc.stop();
+  toneOsc = audioCtx.createOscillator();
+  toneOsc.frequency.value = 440;
+  const g = audioCtx.createGain(); g.gain.value=0.15;
+  toneOsc.connect(g).connect(audioCtx.destination);
+  toneOsc.start();
+  setTimeout(()=>{ try{toneOsc.stop();}catch{} }, sec*1000);
+}
+
+/* ====== wizard ====== */
+async function runWizard() {
+  wizStateEl.textContent='running…';
+  log('diagnostics: start','muted');
+
+  // 1) mic test: show level for 2s
+  await sleep(2000);
+  log('mic test: levels moving? → OK if yes','muted');
+
+  // 2) speaker test: play tone to selected device
+  if (loopSink && loopSink.setSinkId && spkSel.value) {
+    try { await loopSink.setSinkId(spkSel.value); } catch(e){ log('setSinkId blocked (non-HTTPS or not allowed). Using default output.','warn'); }
+  }
+  playTone(1);
+  log('speaker test: 440Hz beep should be audible','muted');
+
+  // 3) network test: auto ping + ICE gather quick check (via local loopback)
+  startAutoPing();
+  try {
+    await startLoopback();
+    log('network test: ICE connected (look at path & transport chips)','ok');
+  } catch (e) {
+    log('network test failed: '+e.message,'err');
+  }
+
+  wizStateEl.textContent='done';
+}
+
+/* ====== helpers ====== */
+const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+
+/* ====== wire up ====== */
+btnEnable.addEventListener('click', enableSound);
+btnRefresh.addEventListener('click', enumerate);
+btnJoin.addEventListener('click', joinRoom);
+btnPing.addEventListener('click', ()=> socket.emit('ping', Date.now()));
+btnDiag.addEventListener('click', ()=> runWizard().catch(e=>log(e.message,'err')));
+
+spkSel.addEventListener('change', async ()=>{
+  if (loopSink && loopSink.setSinkId) {
+    try { await loopSink.setSinkId(spkSel.value); } catch(e){ log('cannot switch output: '+e.message,'warn'); }
+  }
+});
+
+window.addEventListener('beforeunload', ()=>{ stopLoopback(); socket && socket.close(); });
+
+(async function boot() {
+  await enumerate();
+  // populate selects defaults if empty labels (before permission)
+  if (!micSel.value) micSel.value = 'default';
+  if (!spkSel.value) spkSel.value = 'default';
+})();
 </script>
 </body>
 </html>
