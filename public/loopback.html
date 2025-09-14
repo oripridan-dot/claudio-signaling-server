@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Loopback — local mic to speakers</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <style>
+    body{margin:0;font-family:system-ui,Arial;background:#0a0a0a;color:#e5e7eb}
+    .wrap{max-width:600px;margin:0 auto;padding:24px}
+    button{background:#0f172a;color:#cbd5e1;border:1px solid #334155;padding:10px 14px;border-radius:8px;cursor:pointer}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .meter{height:14px;background:#0b0b0b;border:1px solid #1f2937;border-radius:7px;overflow:hidden;margin-top:16px}
+    .bar{height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#f59e0b,#ef4444)}
+    .muted{color:#9ca3af}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Local loopback test</h1>
+    <p class="muted">No server, no WebRTC. This just routes your mic to your speakers.</p>
+    <div class="row">
+      <button id="unlock">Enable sound</button>
+      <button id="start" disabled>Start mic</button>
+      <button id="stop" disabled>Stop mic</button>
+      <button id="tone" disabled>Play 440Hz tone</button>
+    </div>
+    <div class="meter"><div id="vu" class="bar"></div></div>
+    <pre id="log" style="white-space:pre-wrap"></pre>
+  </div>
+
+  <script>
+    let ctx, src, analyser, buf, stream, osc;
+    const log = (...a)=>{ document.getElementById('log').textContent += a.join(' ')+"\n"; };
+    const vu  = document.getElementById('vu');
+
+    document.getElementById('unlock').onclick = async ()=>{
+      ctx = new (window.AudioContext||window.webkitAudioContext)({ sampleRate: 48000 });
+      if (ctx.state === 'suspended') await ctx.resume();
+      document.getElementById('start').disabled=false;
+      document.getElementById('tone').disabled=false;
+      log('AudioContext ready', ctx.sampleRate+'Hz');
+    };
+
+    document.getElementById('start').onclick = async ()=>{
+      try{
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate:48000, channelCount:1, echoCancellation:false, noiseSuppression:false, autoGainControl:false }});
+        src = ctx.createMediaStreamSource(stream);
+        analyser = ctx.createAnalyser(); analyser.fftSize = 1024; buf = new Float32Array(analyser.fftSize);
+        src.connect(analyser);
+        // route to speakers
+        const dst = ctx.createGain(); dst.gain.value = 1.0; analyser.connect(dst).connect(ctx.destination);
+        loopVU();
+        document.getElementById('stop').disabled=false;
+        log('Mic started');
+      }catch(e){ log('ERROR getUserMedia:', e.message||e); }
+    };
+
+    document.getElementById('stop').onclick = ()=>{
+      try{ stream.getTracks().forEach(t=>t.stop()); }catch{}
+      stream=null; src=null; analyser=null;
+      vu.style.width='0%';
+      log('Mic stopped');
+    };
+
+    document.getElementById('tone').onclick = ()=>{
+      if (!ctx) return;
+      try{
+        if (osc) { osc.stop(); osc.disconnect(); osc=null; }
+        osc = ctx.createOscillator(); const g=ctx.createGain(); g.gain.value=0.2;
+        osc.frequency.value=440; osc.connect(g).connect(ctx.destination); osc.start();
+        setTimeout(()=>{ try{osc.stop(); osc.disconnect();}catch{} osc=null; }, 600);
+      }catch(e){ log('tone error', e.message||e); }
+    };
+
+    function loopVU(){
+      if (!analyser) return;
+      analyser.getFloatTimeDomainData(buf);
+      let sum=0; for(let i=0;i<buf.length;i++){ const v=buf[i]; sum+=v*v; }
+      const rms=Math.sqrt(sum/buf.length); const db = 20*Math.log10(rms||1e-8);
+      const pct = Math.min(100, Math.max(0, 100*(db+60)/60));
+      vu.style.width = pct+'%';
+      requestAnimationFrame(loopVU);
+    }
+  </script>
+</body>
+</html>
