@@ -65,7 +65,7 @@
 
 <script>
 const logEl = document.getElementById('diag');
-const log = (...a)=>{ logEl.textContent += a.join(' ') + '\\n'; logEl.scrollTop = logEl.scrollHeight; };
+const log = (...a)=>{ logEl.textContent += a.join(' ') + '\n'; logEl.scrollTop = logEl.scrollHeight; };
 const set = (id,v)=>document.getElementById(id).textContent = v;
 
 let ac, meterNode, micStream, pc, dc, rx = document.getElementById('rx');
@@ -82,7 +82,7 @@ function mkBus(){
   const send = (msg) => {
     const payload = {...msg, room: room(), id: myId, ts: Date.now()};
     if (bc) bc.postMessage(payload);
-    localStorage.setItem(name, JSON.stringify(payload)); // storage-event fallback (same profile only)
+    localStorage.setItem(name, JSON.stringify(payload));
     localStorage.removeItem(name);
   };
   const on = (cb) => {
@@ -96,15 +96,37 @@ function mkBus(){
 }
 let bus = mkBus();
 
-// ---------- utils ----------
+// ---------- utils (regex-free SDP munging) ----------
 function sdpTightenOpus(sdp){
-  // Keep opus only, set ptime 3–5ms, mono, fec on, modest bitrate
-  sdp = sdp.replace(/a=rtpmap:(\\d+) opus\\/48000\\/2/g, 'a=rtpmap:$1 opus/48000/2'); // keep as-is (Chrome likes /2)
-  sdp = sdp.replace(/a=fmtp:(\\d+) .*/g, (m,p)=>`a=fmtp:${p} stereo=0;sprop-stereo=0;ptime=3;minptime=3;maxptime=10;maxaveragebitrate=128000;useinbandfec=1;usedtx=0;cbr=0`);
-  return sdp;
+  const lines = sdp.split('\r\n');
+  let opusPt = null;
+
+  // find opus payload type
+  for (const l of lines){
+    const m = l.match(/^a=rtpmap:(\d+)\s+opus\/48000/i);
+    if (m){ opusPt = m[1]; break; }
+  }
+  if (!opusPt) return sdp;
+
+  // keep only opus in m=audio line
+  for (let i=0;i<lines.length;i++){
+    if (lines[i].startsWith('m=audio ')){
+      const m = lines[i].match(/^(m=audio \d+ [A-Z\/]+ )(.+)$/i);
+      if (m) lines[i] = m[1] + opusPt;
+    }
+  }
+
+  // tighten fmtp for opus
+  const fmtp = `a=fmtp:${opusPt} stereo=0;sprop-stereo=0;ptime=3;minptime=3;maxptime=10;maxaveragebitrate=128000;useinbandfec=1;usedtx=0;cbr=0`;
+  const idx = lines.findIndex(l=> l.startsWith('a=fmtp:'+opusPt));
+  if (idx>=0) lines[idx]=fmtp; else lines.push(fmtp);
+
+  return lines.join('\r\n');
 }
 function keepHostCandidates(sdp){
-  return sdp.split('\\r\\n').filter(l=> !l.startsWith('a=candidate:') || / typ host /.test(l)).join('\\r\\n');
+  return sdp.split('\r\n')
+    .filter(l => !l.startsWith('a=candidate:') || l.includes(' typ host '))
+    .join('\r\n');
 }
 function setState(s){ document.getElementById('state').textContent = s; }
 
@@ -135,7 +157,6 @@ async function getMic(){
       echoCancellation:false, noiseSuppression:false, autoGainControl:false
     }
   });
-  // simple level meter
   if (!ac) ac = new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
   const src = ac.createMediaStreamSource(micStream);
   meterNode = ac.createScriptProcessor(512,1,1);
@@ -143,7 +164,7 @@ async function getMic(){
     const d=e.inputBuffer.getChannelData(0); let sum=0; for(let i=0;i<d.length;i++){ sum += d[i]*d[i]; }
     document.getElementById('lvl').value = Math.sqrt(sum/d.length);
   };
-  src.connect(meterNode).connect(ac.destination); // tiny monitor to drive meter; not audible
+  src.connect(meterNode).connect(ac.destination);
   log('mic ready');
 }
 
@@ -162,13 +183,11 @@ function pingLoop(){
   dc.send(JSON.stringify({t:'ping', ts: performance.now()}));
   setTimeout(pingLoop, 1000);
 }
-
 async function makePC(){
   pc = new RTCPeerConnection({ iceServers:[], bundlePolicy:'max-bundle' });
-  // host-only: drop non-host ICE candidates
   pc.onicecandidate = (e)=>{
     if (!e.candidate) return;
-    if (/ typ host /.test(e.candidate.candidate)) bus.send({t:'cand', cand:e.candidate});
+    if (e.candidate.candidate.includes(' typ host ')) bus.send({t:'cand', cand:e.candidate});
   };
   pc.onconnectionstatechange = ()=>{ setState(pc.connectionState); log('pc state', pc.connectionState); };
   pc.ontrack = async (ev)=>{
@@ -176,13 +195,12 @@ async function makePC(){
     try{ await rx.play(); }catch{}
     log('remote track');
   };
-  // add mic track (muted until talkback ON)
   const track = micStream.getAudioTracks()[0];
   track.enabled = talking;
   pc.addTrack(track, micStream);
 }
 
-// ---------- Signaling (glare-free, deterministic) ----------
+// ---------- Signaling (glare-free) ----------
 let helloTimer = null, heartbeat = null, offered = false, answered = false;
 
 function startPresence(){
@@ -191,15 +209,8 @@ function startPresence(){
   helloTimer = setInterval(()=> bus.send({t:'hello'}), 1000);
   heartbeat = setInterval(()=> bus.send({t:'hb'}), 1500);
 }
-
-function stopPresence(){
-  clearInterval(helloTimer); clearInterval(heartbeat);
-}
-
-function decideRole(otherId){
-  // lower id becomes caller to avoid glare
-  return (myId < otherId) ? 'caller' : 'callee';
-}
+function stopPresence(){ clearInterval(helloTimer); clearInterval(heartbeat); }
+function decideRole(otherId){ return (myId < otherId) ? 'caller' : 'callee'; }
 
 bus.on(async (m)=>{
   if (m.room !== room() || m.id===myId) return;
@@ -209,13 +220,10 @@ bus.on(async (m)=>{
     const alive = Object.values(peerSeen).filter(ts=> Date.now()-ts < 4000).length;
     set('peers', String(alive));
   }
-
   if (m.t==='hello' && !pc){
-    role = decideRole(m.id);
-    set('role', role);
+    role = decideRole(m.id); set('role', role);
   }
 
-  // SDP flow
   if (m.t==='offer'){
     offered = true;
     await pc.setRemoteDescription(new RTCSessionDescription({type:'offer', sdp:m.sdp}));
@@ -229,7 +237,7 @@ bus.on(async (m)=>{
     await pc.setRemoteDescription(new RTCSessionDescription({type:'answer', sdp:m.sdp}));
   }
   if (m.t==='cand'){
-    try{ await pc.addIceCandidate(m.cand); }catch(e){ /* race ok */ }
+    try{ await pc.addIceCandidate(m.cand); }catch(e){}
   }
 });
 
@@ -238,14 +246,9 @@ async function join(){
   if (!micStream) await getMic();
   await makePC();
 
-  // data channel
-  if (role==='caller'){
-    bindDC(pc.createDataChannel('ping'));
-  }else{
-    pc.ondatachannel = ev => bindDC(ev.channel);
-  }
+  if (role==='caller'){ bindDC(pc.createDataChannel('ping')); }
+  else { pc.ondatachannel = ev => bindDC(ev.channel); }
 
-  // who creates offer? if role unknown yet, wait for a hello or short timeout
   const maybeOffer = async ()=>{
     if (role!=='caller' || offered || answered) return;
     const off = await pc.createOffer({offerToReceiveAudio:true});
@@ -256,10 +259,9 @@ async function join(){
 
   setState('connecting');
   startPresence();
-  setTimeout(maybeOffer, 600); // give discovery a moment
-  setTimeout(maybeOffer, 1200); // second chance
+  setTimeout(maybeOffer, 600);
+  setTimeout(maybeOffer, 1200);
 }
-
 async function leave(){
   stopPresence();
   try{ bus.send({t:'bye'}); }catch{}
@@ -267,15 +269,13 @@ async function leave(){
   rx.srcObject = null; set('peers','0'); set('rtt','–'); setState('idle'); log('left');
 }
 
-// ---------- UX buttons ----------
+// ---------- UI ----------
 document.getElementById('enable').onclick = async ()=>{
   try{
     ac = new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
     await refreshDevs(); await getMic(); await setOutput();
     setState('ready'); log('audio ready', ac.baseLatency? `baseLatency=${(ac.baseLatency*1000).toFixed(2)}ms` : '');
-  }catch(e){
-    log('Enable failed:', e.name, e.message);
-  }
+  }catch(e){ log('Enable failed:', e.name, e.message); }
 };
 document.getElementById('join').onclick = join;
 document.getElementById('leave').onclick = leave;
@@ -304,15 +304,11 @@ document.getElementById('safe').onclick = ()=>{
   });
   log('safe set (ptime≈10ms)');
 };
-
-// rebuild bus if room changes
 document.getElementById('room').addEventListener('change', ()=>{ bus = mkBus(); });
 
-// autoplay sanity
 rx.addEventListener('play', ()=> log('audio element playing'));
 rx.addEventListener('error', (e)=> log('audio error', e.message||''));
 
-// permissions snapshot
 (async ()=>{
   if (navigator.permissions){
     try{
@@ -322,7 +318,6 @@ rx.addEventListener('error', (e)=> log('audio error', e.message||''));
     }catch{}
   }
 })();
-
 navigator.mediaDevices.ondevicechange = refreshDevs;
 </script>
 </body>
