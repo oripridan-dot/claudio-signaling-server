@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>P2P — barebones audio</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <style>
+    body{margin:0;font-family:system-ui,Arial;background:#0a0a0a;color:#e5e7eb}
+    .wrap{max-width:640px;margin:0 auto;padding:24px}
+    input,button{background:#101010;color:#e5e7eb;border:1px solid #2a2a2a;padding:10px 12px;border-radius:8px}
+    button{cursor:pointer}
+    .muted{color:#9ca3af}
+    .log{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:#0b0b0b;border:1px solid #1f2937;border-radius:8px;padding:10px;height:160px;overflow:auto;margin-top:12px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>P2P test</h1>
+    <p class="muted">Open this page in two tabs/devices. Same room → you should hear each other immediately.</p>
+    <div>
+      <input id="room" value="STUDIO1" maxlength="12"/>
+      <button id="go">Join</button>
+      <span id="s">socket: —</span>
+    </div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    // ---------- minimal client ----------
+    const log=(...a)=>{ const d=document.getElementById('log'); d.textContent+=a.join(' ')+"\n"; d.scrollTop=d.scrollHeight; };
+
+    const rtcConfig={ iceServers:[{urls:'stun:stun.l.google.com:19302'}] };
+    let socket, roomId, micTrack, peers=new Map();
+
+    function preferOpusOffer(pc){
+      // ask browser for audio only; server will still reorder SDP
+      return pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:false });
+    }
+
+    async function getMic(){
+      if (micTrack) return micTrack;
+      const s = await navigator.mediaDevices.getUserMedia({ audio:{ channelCount:1, sampleRate:48000, echoCancellation:false, noiseSuppression:false, autoGainControl:false }, video:false });
+      micTrack = s.getAudioTracks()[0];
+      return micTrack;
+    }
+
+    function bootSocket(){
+      socket = io({ transports:['websocket','polling'] });
+      socket.on('connect', ()=>{ document.getElementById('s').textContent='socket: connected'; });
+      socket.on('disconnect', ()=>{ document.getElementById('s').textContent='socket: disconnected'; });
+
+      socket.on('joined-room', ({ roomId:rid, users })=>{
+        roomId = rid;
+        log('joined', rid, 'users:', users.length);
+        users.filter(u=>u.id!==socket.id).forEach(u=>makeOffer(u.id));
+      });
+      socket.on('user-joined', ({ user })=>{
+        if (user.id!==socket.id) makeOffer(user.id);
+      });
+      socket.on('user-left', ({ id })=>{
+        const pc = peers.get(id); if (pc){ try{pc.close();}catch{} }
+        peers.delete(id);
+      });
+
+      socket.on('signal', async ({ from, data })=>{
+        let pc = peers.get(from);
+        if (!pc) pc = await createPeer(from, false);
+        if (data.sdp){
+          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+          if (data.sdp.type==='offer'){
+            const ans = await pc.createAnswer();
+            await pc.setLocalDescription(ans);
+            socket.emit('signal',{ to: from, roomId, data:{ sdp: pc.localDescription } });
+          }
+        } else if (data.candidate){
+          try{ await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); }catch(e){ log('ice add err', e.message); }
+        }
+      });
+    }
+
+    async function createPeer(peerId, initiator){
+      const pc = new RTCPeerConnection(rtcConfig);
+      peers.set(peerId, pc);
+
+      // add our mic immediately (always-on)
+      const track = await getMic();
+      pc.addTrack(track);
+
+      pc.onicecandidate = e=>{ if(e.candidate) socket.emit('signal',{ to: peerId, roomId, data:{ candidate:e.candidate } }); };
+      pc.ontrack = ev=>{
+        const a=document.createElement('audio'); a.autoplay=true; a.playsInline=true; a.srcObject=ev.streams[0];
+        document.body.appendChild(a);
+        a.play().catch(()=>{});
+        log('ontrack from', peerId);
+      };
+      pc.onconnectionstatechange = ()=> log('pc', peerId, pc.connectionState);
+
+      if (initiator){
+        const offer = await preferOpusOffer(pc);
+        await pc.setLocalDescription(offer);
+        socket.emit('signal',{ to: peerId, roomId, data:{ sdp: pc.localDescription } });
+      }
+      return pc;
+    }
+
+    async function makeOffer(peerId){
+      const pc = await createPeer(peerId,true);
+      return pc;
+    }
+
+    document.getElementById('go').onclick = ()=>{
+      const rid = document.getElementById('room').value.trim().toUpperCase();
+      if (!socket) bootSocket();
+      socket.emit('join-room', { roomId: rid, username: 'p2p', instrument:'guitar' });
+    };
+  </script>
+</body>
+</html>
