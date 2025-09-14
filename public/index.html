@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Claudio — sanity test (multi-peer)</title>
+  <title>Claudio — sanity test (low-latency, multi-peer)</title>
   <style>
     body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial;background:#0a0a0a;color:#e5e5e5}
     .wrap{max-width:960px;margin:24px auto;padding:24px}
@@ -48,7 +48,7 @@
       <div id="log" class="log"></div>
     </div>
 
-    <!-- hidden remote sinks -->
+    <!-- remote sinks (hidden) -->
     <div id="sinks" style="display:none"></div>
   </div>
 
@@ -59,16 +59,18 @@
 
     let roomId = 'STUDIO1';
     let socket, selfId;
-    let users = [];       // [{id, username, instrument}]
-    let peers = new Map(); // id -> { pc, audioEl, sender? }
+    let users = [];
+    // peers: id -> { pc, audioEl, sender, queued: RTCIceCandidateInit[] }
+    const peers = new Map();
     let stream;
 
-    const ice = {
+    // ---------- ICE / RTC config ----------
+    const rtcConfig = {
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-      iceCandidatePoolSize: 4
+      iceCandidatePoolSize: 8
     };
 
-    // ========== devices ==========
+    // ---------- devices ----------
     async function listDevices(){
       const devs = await navigator.mediaDevices.enumerateDevices();
       const mics = devs.filter(d=>d.kind==='audioinput');
@@ -95,7 +97,7 @@
 
     function setupLevelMeter(src){
       const AC = window.AudioContext || window.webkitAudioContext;
-      const ac = new AC();
+      const ac = new AC({ latencyHint: 'interactive' });
       const node = ac.createMediaStreamSource(src);
       const analyser = ac.createAnalyser();
       analyser.fftSize = 1024;
@@ -111,7 +113,35 @@
       tick();
     }
 
-    // ========== socket ==========
+    // ---------- SDP munging for low latency ----------
+    function tuneOpus(sdp){
+      // ensure ptime 10ms, FEC on, low delay
+      const m = /a=rtpmap:(\d+)\s+opus\/48000\/2/i.exec(sdp) || /a=rtpmap:(\d+)\s+opus\/48000/i.exec(sdp);
+      if (!m) return sdp;
+      const pt = m[1];
+      const fmtpRe = new RegExp(`a=fmtp:${pt} (.*)`);
+      if (fmtpRe.test(sdp)) {
+        sdp = sdp.replace(fmtpRe, (line, p) => {
+          const params = new URLSearchParams(p.replace(/;/g,'&'));
+          params.set('stereo','0');
+          params.set('useinbandfec','1');
+          params.set('minptime','10');
+          params.set('maxplaybackrate','48000');
+          params.set('ptime','10');
+          // keep bitrate modest to reduce jitter (tune later as needed)
+          params.set('maxaveragebitrate','96000');
+          return `a=fmtp:${pt} `+params.toString().replace(/&/g,';');
+        });
+      } else {
+        sdp = sdp.replace(/a=rtpmap:/, `a=fmtp:${pt} stereo=0;useinbandfec=1;minptime=10;maxplaybackrate=48000;ptime=10;maxaveragebitrate=96000\r\na=rtpmap:`);
+      }
+      // enforce packet times on m=audio section
+      sdp = sdp.replace(/a=ptime:\d+/g,'a=ptime:10');
+      if (!/a=ptime:10/.test(sdp)) sdp = sdp.replace(/m=audio .+?\r\n/, m => m + 'a=ptime:10\r\n');
+      return sdp;
+    }
+
+    // ---------- socket wiring ----------
     function wireSocket(){
       socket = io({ transports:['websocket','polling'] });
       socket.on('connect', ()=> log('socket connected','ok'));
@@ -128,36 +158,57 @@
         users = us;
         $('peerc').textContent = 'peers: '+(users.length-1);
         log('users: '+users.map(u=>u.username||u.id).join(', '));
+        // pre-create peer shells so we can queue candidates safely
+        for (const u of users) if (u.id !== selfId && !peers.get(u.id)) createPeer(u.id);
       });
 
-      socket.on('user-left', ({id}) => {
-        closePeer(id);
-      });
+      socket.on('user-left', ({id}) => closePeer(id));
 
       // main signaling
       socket.on('signal', async ({from, data}) => {
         let peer = peers.get(from);
         if (!peer) peer = await createPeer(from);
 
-        if (data.sdp) {
-          const desc = new RTCSessionDescription(data.sdp);
-          if (desc.type === 'offer') {
-            await peer.pc.setRemoteDescription(desc);
-            const answer = await peer.pc.createAnswer();
-            await peer.pc.setLocalDescription(answer);
-            socket.emit('signal', { to: from, roomId, data: { sdp: peer.pc.localDescription } });
-          } else if (desc.type === 'answer') {
-            await peer.pc.setRemoteDescription(desc);
+        try {
+          if (data.sdp) {
+            const desc = new RTCSessionDescription(data.sdp);
+            if (desc.type === 'offer') {
+              await peer.pc.setRemoteDescription(desc);
+              // drain queued candidates now that we have a remote description
+              await flushQueued(peer);
+              let answer = await peer.pc.createAnswer({ offerToReceiveAudio: true });
+              // tune SDP
+              answer.sdp = tuneOpus(answer.sdp);
+              await peer.pc.setLocalDescription(answer);
+              socket.emit('signal', { to: from, roomId, data: { sdp: peer.pc.localDescription } });
+            } else if (desc.type === 'answer') {
+              await peer.pc.setRemoteDescription(desc);
+              await flushQueued(peer);
+            }
+          } else if (data.candidate) {
+            // queue until we have a remoteDescription
+            if (!peer.pc.remoteDescription) {
+              peer.queued.push(data.candidate);
+            } else {
+              await peer.pc.addIceCandidate(data.candidate);
+            }
           }
-        } else if (data.candidate) {
-          try { await peer.pc.addIceCandidate(data.candidate); } catch (e) { log('ice err '+e,'err'); }
+        } catch (e) {
+          log('signal err '+e.message,'err');
         }
       });
     }
 
-    // ========== webrtc ==========
+    async function flushQueued(peer){
+      while (peer.queued.length){
+        const c = peer.queued.shift();
+        try{ await peer.pc.addIceCandidate(c); }catch(e){ log('ice late err '+e.message,'err'); }
+      }
+    }
+
+    // ---------- webrtc ----------
     async function createPeer(remoteId){
-      const pc = new RTCPeerConnection(ice);
+      const pc = new RTCPeerConnection(rtcConfig);
 
       // remote playback
       const audioEl = document.createElement('audio');
@@ -168,9 +219,7 @@
       }
       $('sinks').appendChild(audioEl);
 
-      pc.ontrack = (ev) => {
-        audioEl.srcObject = ev.streams[0];
-      };
+      pc.ontrack = (ev) => { audioEl.srcObject = ev.streams[0]; };
 
       pc.onicecandidate = (ev) => {
         if (ev.candidate) {
@@ -179,12 +228,11 @@
       };
 
       pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
-          closePeer(remoteId);
-        }
+        const st = pc.connectionState;
+        if (st === 'failed' || st === 'disconnected' || st === 'closed') closePeer(remoteId);
       };
 
-      const obj = { pc, audioEl, sender: null };
+      const obj = { pc, audioEl, sender: null, queued: [] };
       peers.set(remoteId, obj);
       return obj;
     }
@@ -202,7 +250,6 @@
     async function startTalking(){
       if (!stream) return;
 
-      // ensure we have peers for all other users
       const others = users.filter(u => u.id !== selfId);
       for (const u of others) {
         let peer = peers.get(u.id);
@@ -211,21 +258,21 @@
           const track = stream.getAudioTracks()[0];
           peer.sender = peer.pc.addTrack(track, stream);
         }
-        const offer = await peer.pc.createOffer({ offerToReceiveAudio: true });
+        let offer = await peer.pc.createOffer({ offerToReceiveAudio: true });
+        offer.sdp = tuneOpus(offer.sdp);
         await peer.pc.setLocalDescription(offer);
         socket.emit('signal', { to: u.id, roomId, data: { sdp: peer.pc.localDescription } });
       }
     }
 
     function stopTalking(){
-      for (const [id, p] of peers) {
+      for (const [id,p] of peers) {
         try { p.pc.getSenders().forEach(s => { try{ p.pc.removeTrack(s); }catch{} }); } catch {}
         p.sender = null;
-        // keep pc alive for inbound audio
       }
     }
 
-    // ========== UI ==========
+    // ---------- UI ----------
     $('refresh').onclick = listDevices;
     $('enable').onclick = async () => {
       try {
