@@ -1,436 +1,201 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <title>Claudio v5.4.0</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <style>
-        :root {
-            --primary: #3b82f6;
-            --primary-light: rgba(59, 130, 246, 0.2);
-            --primary-border: rgba(59, 130, 246, 0.4);
-            --success: #22c55e;
-            --success-light: rgba(34, 197, 94, 0.15);
-            --success-border: rgba(34, 197, 94, 0.3);
-            --danger: #ef4444;
-            --danger-light: rgba(239, 68, 68, 0.15);
-            --danger-border: rgba(239, 68, 68, 0.4);
-            --warning: #f59e0b;
-            --bg-primary: #0a0a0a;
-            --bg-secondary: rgba(20, 20, 20, 0.8);
-            --bg-input: rgba(40, 40, 40, 0.8);
-            --border-primary: rgba(40, 40, 40, 0.8);
-            --border-secondary: rgba(60, 60, 60, 0.8);
-            --text-primary: #ffffff;
-            --text-secondary: #e0e0e0;
-            --text-muted: #9ca3af;
-        }
-
-        * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-secondary);
-            min-height: 100vh;
-            line-height: 1.4;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-        }
-
-        .container { max-width: 600px; margin: 0 auto; padding: 20px 20px 110px; }
-
-        .header { text-align:center; margin-bottom: 24px; padding: 16px 0; }
-        .logo { font-size: clamp(2rem, 6vw, 2.6rem); font-weight: 200; letter-spacing:-.02em;
-                background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip:text; -webkit-text-fill-color:transparent;}
-        .tagline { font-size:.9rem; color:var(--text-muted); }
-
-        .status-bar {
-            display:flex; align-items:center; justify-content:center;
-            padding: 12px 16px; margin-bottom:16px; border-radius:12px;
-            backdrop-filter: blur(10px); font-size:.9rem; font-weight:500;
-        }
-        .status-connected { background: var(--success-light); border:1px solid var(--success-border); color:var(--success); }
-        .status-disconnected { background: var(--danger-light); border:1px solid var(--danger-border); color:var(--danger); }
-        .status-connecting { background: rgba(245, 158, 11, .15); border:1px solid rgba(245, 158, 11, .35); color:#f59e0b; }
-        .status-dot { width:8px; height:8px; border-radius:50%; margin-right:8px; background: currentColor; animation: pulse 2s infinite; }
-        @keyframes pulse { 0%,100% {opacity:1} 50%{opacity:.6} }
-
-        .card { background: var(--bg-secondary); border:1px solid var(--border-primary); border-radius:16px; padding:20px; margin-bottom:16px; }
-        .card-title { font-size:1.05rem; font-weight:600; color:var(--text-primary); display:flex; align-items:center; gap:8px; margin-bottom:14px; }
-        .icon { width:18px; height:18px; opacity:.85; }
-
-        .input-group { display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:12px; }
-        .input-full { grid-column:1 / -1; }
-        input, select {
-            background: var(--bg-input); border:1px solid var(--border-secondary);
-            border-radius:10px; padding:12px 14px; color:var(--text-secondary); font-size:.95rem; width:100%;
-        }
-        input:focus, select:focus { outline:none; border-color:var(--primary); box-shadow:0 0 0 3px rgba(59,130,246,.12); }
-
-        .button-group { display:flex; gap:10px; flex-wrap:wrap; }
-        .btn {
-            background: var(--primary-light); border:1px solid var(--primary-border); color:var(--primary);
-            padding:12px 16px; border-radius:10px; font-size:.9rem; font-weight:500; cursor:pointer; flex:1; min-width:120px;
-            display:flex; align-items:center; justify-content:center; gap:8px;
-        }
-        .btn:hover:not(:disabled){ background: rgba(59,130,246,.3); transform: translateY(-1px); }
-        .btn:disabled { opacity:.5; cursor:not-allowed; }
-        .btn-secondary { background: rgba(107,114,128,.18); border-color: rgba(107,114,128,.35); color:#a1a1aa; }
-        .btn-secondary:hover:not(:disabled){ background: rgba(107,114,128,.28); }
-
-        .user-list { display:grid; gap:10px; }
-        .user-item { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; background:rgba(45,45,45,.55); border-radius:10px; border-left:3px solid var(--primary); }
-        .user-name { font-weight:500; color:var(--text-secondary); }
-        .user-instrument { font-size:.8rem; color:var(--text-muted); }
-        .user-audio { font-size:1.15rem; opacity:.9; }
-        .user-audio.muted { opacity:.4; }
-
-        .latency-display { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-        .latency-value { font-weight:600; font-size:1rem; padding:8px 12px; background:rgba(50,50,50,.55); border-radius:8px; min-width:60px; text-align:center; }
-
-        .floating-controls { position:fixed; bottom:20px; right:20px; display:flex; flex-direction:column; gap:10px; z-index:1000; }
-        .btn-floating { width:56px; height:56px; border-radius:50%; border:none; display:flex; align-items:center; justify-content:center;
-                        box-shadow:0 4px 20px rgba(0,0,0,.35); background:var(--bg-secondary); border:2px solid var(--border-primary); color:var(--text-secondary); }
-        .btn-talkback { background: var(--danger-light); color: var(--danger); border-color: var(--danger-border); }
-        .btn-talkback.active { animation: tbpulse 1.4s infinite; }
-        @keyframes tbpulse { 0%,100%{ box-shadow:0 4px 20px rgba(0,0,0,.35), 0 0 0 0 rgba(239,68,68,.4);} 50%{ box-shadow:0 4px 20px rgba(0,0,0,.35), 0 0 0 10px rgba(239,68,68,0);} }
-
-        .chat-panel { position:fixed; top:0; right:-100vw; width:min(400px,100vw); height:100vh; background:rgba(15,15,15,.96);
-                      backdrop-filter: blur(18px); border-left:1px solid var(--border-primary); display:flex; flex-direction:column; transition:right .3s ease; z-index:1200; }
-        .chat-panel.open { right:0; }
-        .chat-header { padding:14px 16px; border-bottom:1px solid var(--border-primary); display:flex; align-items:center; justify-content:space-between; }
-        .chat-title { font-weight:600; color:var(--text-primary); }
-        .chat-messages { flex:1; padding:12px; overflow:auto; font-size:.9rem; }
-        .chat-input { padding:12px; border-top:1px solid var(--border-primary); display:flex; gap:8px; }
-        .chat-input input { flex:1; }
-        .message { margin-bottom:10px; }
-        .message .t { color:#7c7c7c; font-size:.72rem; margin-right:6px; }
-        .message.system { color: var(--success); }
-        .message.error { color: var(--danger); }
-
-        .debug { position:fixed; left:16px; bottom:90px; width:320px; max-height:220px; overflow:auto; background:#000000e0; border:1px solid #333; border-radius:8px; display:none; }
-        .debug.visible { display:block; }
-        .debug pre { font-family: ui-monospace, Consolas, monospace; font-size:12px; padding:8px; color:#9ae6b4; white-space:pre-wrap; }
-        .debug .title { padding:6px 8px; border-bottom:1px solid #333; font-weight:600; }
-
-        @media (max-width:768px){ .container{ padding:12px 12px 90px;} .btn-floating{ width:52px; height:52px;} .debug{ left:10px; width: calc(100vw - 20px);} }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claudio — sanity test</title>
+  <style>
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial;background:#0a0a0a;color:#e5e5e5}
+    .wrap{max-width:720px;margin:24px auto;padding:24px}
+    h1{margin:0 0 12px 0;font-weight:600}
+    .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+    input,button,select{background:#171717;color:#e5e5e5;border:1px solid #2a2a2a;border-radius:8px;padding:10px 12px}
+    button{cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .log{background:#0d0d0d;border:1px solid #252525;border-radius:8px;padding:8px;height:160px;overflow:auto;font:12px ui-monospace,Menlo,Consolas,monospace;white-space:pre}
+    .meter{height:10px;background:#222;border:1px solid #333;border-radius:6px;overflow:hidden}
+    .bar{height:100%;width:0;background:linear-gradient(90deg,#43e,#3c8,#fc3,#f44)}
+    .ok{color:#22c55e}.warn{color:#f59e0b}.err{color:#ef4444}
+  </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <div class="logo">claudio</div>
-            <div class="tagline">ultra-low latency music collaboration</div>
-        </div>
+  <div class="wrap">
+    <h1>Claudio — sanity test</h1>
 
-        <div id="connectionStatus" class="status-bar status-connecting">
-            <div class="status-dot"></div><span id="statusText">connecting…</span>
-        </div>
-
-        <div class="card">
-            <div class="card-title">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3"/></svg>
-                join session
-            </div>
-            <div class="input-group">
-                <input id="roomId" placeholder="room code" value="STUDIO1" maxlength="12" autocapitalize="characters">
-                <input id="username" placeholder="your name" value="musician" maxlength="20">
-            </div>
-            <div class="input-group">
-                <select id="instrument" class="input-full">
-                    <option value="guitar">🎸 guitar</option><option value="bass">🎸 bass</option>
-                    <option value="drums">🥁 drums</option><option value="piano">🎹 piano</option>
-                    <option value="vocals">🎤 vocals</option><option value="violin">🎻 violin</option>
-                    <option value="saxophone">🎷 saxophone</option><option value="other">🎵 other</option>
-                </select>
-            </div>
-            <div class="button-group">
-                <button class="btn" id="joinBtn">join</button>
-                <button class="btn btn-secondary" id="createBtn">create</button>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-title">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-                session
-            </div>
-            <div id="roomInfo" class="room-info">not in a session</div>
-            <div id="userList" class="user-list" role="list"></div>
-        </div>
-
-        <div class="card">
-            <div class="card-title">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
-                connection
-            </div>
-            <div class="latency-display">
-                <button class="btn btn-secondary" id="latencyBtn">test latency</button>
-                <div id="latencyResult" class="latency-value">-</div>
-            </div>
-        </div>
+    <div class="row">
+      <input id="room" value="STUDIO1" />
+      <input id="name" value="musician" />
+      <button id="join">Join</button>
+      <button id="ping">Ping</button>
+      <span id="rtt">rtt: —</span>
     </div>
 
-    <div class="floating-controls">
-        <button class="btn-floating" id="chatToggle" title="chat">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        </button>
-        <button class="btn-floating btn-talkback" id="talkBtn" title="hold to talk">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                <line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
-            </svg>
-        </button>
+    <div class="row">
+      <select id="mic"></select>
+      <select id="out"></select>
+      <button id="refresh">Refresh devices</button>
     </div>
 
-    <div id="chatPanel" class="chat-panel" role="dialog" aria-labelledby="chatTitle">
-        <div class="chat-header">
-            <div class="chat-title" id="chatTitle">chat</div>
-            <button class="btn-floating" id="closeChat" title="close">✕</button>
-        </div>
-        <div id="chatMessages" class="chat-messages"></div>
-        <div class="chat-input">
-            <input id="messageInput" placeholder="type message…" maxlength="240">
-            <button class="btn" id="sendBtn">send</button>
-        </div>
+    <div class="row">
+      <button id="enable">Enable sound</button>
+      <button id="talk" disabled>🎙️ Hold to talk</button>
     </div>
 
-    <div id="debug" class="debug">
-        <div class="title">debug</div>
-        <pre id="dbg"></pre>
+    <div class="row">
+      <div class="meter" style="flex:1"><div id="bar" class="bar"></div></div>
     </div>
 
-    <!-- Socket.IO client served by your server -->
-    <script src="/socket.io/socket.io.js"></script>
-    <script>
-    // ====== TURN / STUN (public openrelay for quick NAT traversal) ======
-    const iceServers = [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:openrelay.metered.ca:80' },
-      { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-      { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
-      { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
-    ];
-    const rtcConfig = { iceServers, bundlePolicy:'max-bundle', rtcpMuxPolicy:'require' };
+    <div class="row">
+      <div id="log" class="log"></div>
+    </div>
+  </div>
 
-    // ====== State ======
-    const peers = new Map();          // peerId -> RTCPeerConnection
-    let socket = null;
-    let currentRoom = null;
-    let micStream = null;             // MediaStream with audio track
-    let micTrack = null;              // MediaStreamTrack
-    let isTalking = false;
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const $ = (id)=>document.getElementById(id);
+    const log = (m,c='')=>{ const el=$('log'); const t=document.createElement('div'); if(c)t.className=c; t.textContent=m; el.appendChild(t); el.scrollTop=el.scrollHeight; };
 
-    // ====== Helpers ======
-    const $ = sel => document.querySelector(sel);
-    const log = (...a) => { const d=$("#dbg"); if(!d) return; $("#debug").classList.add("visible"); d.textContent += a.join(" ") + "\n"; d.scrollTop = d.scrollHeight; console.log(...a); };
-    const setStatus = (cls, text) => { const s=$("#connectionStatus"); s.className = "status-bar " + cls; $("#statusText").textContent = text; };
-    const addMsg = (txt, cls="") => { const m=document.createElement("div"); m.className="message "+cls; const t=new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}); m.innerHTML=`<span class="t">${t}</span>${txt}`; $("#chatMessages").appendChild(m); $("#chatMessages").scrollTop = $("#chatMessages").scrollHeight; };
+    let socket, stream, pc, roomId = 'STUDIO1', meter, audioEl;
+    const ice = { iceServers: [{urls:'stun:stun.l.google.com:19302'}] };
 
-    // ====== Audio (always-on track, push-to-talk using .enabled) ======
-    async function ensureMic() {
-      if (micTrack) return micTrack;
-      const constraints = {
-        audio: { channelCount:1, sampleRate:48000, echoCancellation:false, noiseSuppression:false, autoGainControl:false },
-        video: false
-      };
-      micStream = await navigator.mediaDevices.getUserMedia(constraints);
-      micTrack = micStream.getAudioTracks()[0];
-      micTrack.enabled = false; // push-to-talk default off
-      log("mic settings", JSON.stringify(micTrack.getSettings()));
-      return micTrack;
+    async function listDevices(){
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const mics = devs.filter(d=>d.kind==='audioinput');
+      const outs = devs.filter(d=>d.kind==='audiooutput');
+      $('mic').innerHTML = mics.map(d=>`<option value="${d.deviceId}">${d.label||'Mic'}</option>`).join('');
+      $('out').innerHTML = outs.map(d=>`<option value="${d.deviceId}">${d.label||'Output'}</option>`).join('');
     }
 
-    async function addMicTo(pc) {
-      const t = await ensureMic();
-      pc.addTrack(t); // single track fan-out to all peers
-    }
-
-    function setPushToTalk(active) {
-      isTalking = active;
-      $("#talkBtn").classList.toggle("active", active);
-      if (micTrack) micTrack.enabled = active;
-    }
-
-    // ====== Socket / Signaling ======
-    function bootSocket() {
-      socket = io({ transports:['websocket','polling'] });
-      socket.on('connect', ()=>{ setStatus('status-connected','connected'); addMsg('connected','system'); });
-      socket.on('disconnect', r=>{ setStatus('status-disconnected','disconnected'); addMsg('disconnected: '+r,'system'); });
-
-      socket.on('joined-room', ({ roomId, users })=>{
-        currentRoom = roomId;
-        $("#roomInfo").textContent = `in session: ${roomId}`;
-        renderUsers(users);
-        addMsg(`joined ${roomId}`, 'system');
-        users.filter(u=>u.id!==socket.id).forEach(u=>makeOffer(u.id));
-      });
-
-      socket.on('users-updated', ({ users })=> renderUsers(users));
-      socket.on('user-joined', ({ user, users })=>{ addMsg(`${user.username} joined`, 'system'); renderUsers(users||[]); });
-      socket.on('user-left', ({ username, id, users })=>{
-        addMsg(`${username||id} left`, 'system');
-        const pc=peers.get(id); if (pc) try{pc.close()}catch{}; peers.delete(id);
-        renderUsers(users||[]);
-      });
-
-      socket.on('signal', async ({ from, data })=>{
-        let pc = peers.get(from);
-        if (!pc) pc = await createPeer(from, false);
-        try {
-          if (data.sdp) {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-            if (data.sdp.type === 'offer') {
-              const ans = await pc.createAnswer();
-              await pc.setLocalDescription(ans);
-              socket.emit('signal', { to: from, roomId: currentRoom, data: { sdp: pc.localDescription } });
-            }
-          } else if (data.candidate) {
-            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-          }
-        } catch (e) { log('signal err', e.message||e); }
-      });
-
-      // ping/pong RTT
-      socket.on('pong', (tSent)=> {
-        const rtt = Date.now() - tSent;
-        const color = rtt<30?'#22c55e':(rtt<70?'#f59e0b':'#ef4444');
-        $("#latencyResult").innerHTML = `<span style="color:${color}">${rtt}ms</span>`;
-      });
-    }
-
-    function renderUsers(users) {
-      const ul = $("#userList");
-      ul.innerHTML = (users||[]).map(u => `
-        <div class="user-item">
-          <div>
-            <div class="user-name">${escapeHtml(u.username || u.id)}</div>
-            <div class="user-instrument">${escapeHtml(u.instrument || '')}</div>
-          </div>
-          <div class="user-audio ${micTrack && micTrack.enabled ? '' : 'muted'}">${(u.id===socket.id)?'🎙️':'🔊'}</div>
-        </div>
-      `).join('');
-    }
-
-    function escapeHtml(s){ const d=document.createElement('div'); d.textContent = s??''; return d.innerHTML; }
-
-    // ====== WebRTC peer creation ======
-    async function createPeer(peerId, initiator) {
-      const pc = new RTCPeerConnection(rtcConfig);
-      peers.set(peerId, pc);
-
-      await addMicTo(pc);
-
-      pc.onicecandidate = e=>{
-        if(e.candidate) socket.emit('signal',{ to: peerId, roomId: currentRoom, data:{ candidate: e.candidate }});
-      };
-      pc.onicegatheringstatechange = ()=> log('gather', pc.iceGatheringState);
-      pc.oniceconnectionstatechange = ()=>{
-        log('ice', pc.iceConnectionState);
-        if (pc.iceConnectionState === 'failed') pc.restartIce?.();
-      };
-      pc.onconnectionstatechange = ()=> log('pc', pc.connectionState);
-      pc.ontrack = ev=>{
-        // Autoplay remote stream
-        const a = document.createElement('audio');
-        a.autoplay = true; a.playsInline = true; a.srcObject = ev.streams[0];
-        document.body.appendChild(a);
-        a.play().catch(()=>{});
-        log('ontrack', peerId);
-      };
-
-      // log candidate types
-      const seen = new Set();
-      pc.addEventListener('icecandidate', e=>{
-        if (e.candidate && !seen.has(e.candidate.candidate)) {
-          seen.add(e.candidate.candidate);
-          const typ=(e.candidate.candidate.match(/ typ (\w+)/)||[])[1];
-          log('local cand', typ);
+    async function getMic(){
+      const id = $('mic').value || undefined;
+      const s = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: id ? {exact:id} : undefined,
+          channelCount: 1,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          sampleRate: 48000,
+          sampleSize: 16
         }
       });
+      return s;
+    }
 
-      if (initiator) {
-        const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:false });
-        await pc.setLocalDescription(offer);
-        socket.emit('signal', { to: peerId, roomId: currentRoom, data: { sdp: pc.localDescription } });
+    function setupLevelMeter(src){
+      const ac = new (window.AudioContext||window.webkitAudioContext)();
+      const srcNode = ac.createMediaStreamSource(src);
+      const analyser = ac.createAnalyser();
+      analyser.fftSize = 1024;
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      srcNode.connect(analyser);
+      function tick(){
+        analyser.getByteTimeDomainData(data);
+        // Compute RMS
+        let sum=0; for(let i=0;i<data.length;i++){ const v=(data[i]-128)/128; sum+=v*v; }
+        const rms = Math.sqrt(sum/data.length);
+        $('bar').style.width = Math.min(100, (rms*200)).toFixed(1)+'%';
+        requestAnimationFrame(tick);
       }
-      return pc;
+      tick();
     }
 
-    async function makeOffer(peerId){ return createPeer(peerId, true); }
+    function wireSocket(){
+      socket = io({ transports:['websocket','polling'] });
+      socket.on('connect', ()=>{ log('socket connected','ok'); });
+      socket.on('disconnect', r=> log('socket disconnect: '+r,'warn'));
+      socket.on('pong', ts=> $('rtt').textContent = 'rtt: '+(Date.now()-ts)+'ms');
+      socket.on('joined-room', ({roomId, users})=>{
+        log('joined '+roomId+' users:'+users.length,'ok');
+      });
+      socket.on('users-updated', ({users})=> log('users: '+users.map(u=>u.username).join(', ')));
+      socket.on('signal', async ({from, data})=>{
+        if(!pc) return;
+        if(data.sdp){
+          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+          if(data.sdp.type==='offer'){
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            socket.emit('signal',{to: from, roomId, data:{sdp: pc.localDescription}});
+          }
+        }else if(data.candidate){
+          try{ await pc.addIceCandidate(data.candidate); }catch(e){ log('ice err '+e,'err'); }
+        }
+      });
+    }
 
-    // ====== UI wiring ======
-    $("#joinBtn").addEventListener('click', async ()=>{
+    async function join(){
+      roomId = $('room').value.trim().toUpperCase();
+      const username = $('name').value.trim() || 'musician';
+      socket.emit('join-room', {roomId, username, instrument:'guitar'});
+    }
+
+    async function enable(){
       try{
-        if (!socket) bootSocket();
-        await ensureMic(); // ask permission up-front (required on iOS)
-        const room = $("#roomId").value.trim().toUpperCase();
-        const username = $("#username").value.trim() || 'musician';
-        const instrument = $("#instrument").value || 'guitar';
-        setStatus('status-connecting','joining…');
-        socket.emit('join-room', { roomId: room, username, instrument });
-      }catch(e){ addMsg('mic error: '+(e.message||e),'error'); }
-    });
-
-    $("#createBtn").addEventListener('click', ()=>{
-      const code = randomRoom();
-      $("#roomId").value = code;
-      addMsg('created room: '+code,'system');
-    });
-
-    $("#latencyBtn").addEventListener('click', ()=>{
-      if (!socket || socket.disconnected){ addMsg('not connected','error'); return;}
-      $("#latencyResult").textContent = '…';
-      socket.emit('ping', Date.now());
-    });
-
-    // Push-to-talk (hold)
-    const talk = $("#talkBtn");
-    const press = e=>{ e.preventDefault(); if(!micTrack) return; setPushToTalk(true); };
-    const release = e=>{ e.preventDefault(); setPushToTalk(false); };
-    talk.addEventListener('mousedown', press);
-    talk.addEventListener('mouseup', release);
-    talk.addEventListener('mouseleave', release);
-    talk.addEventListener('touchstart', press, {passive:false});
-    talk.addEventListener('touchend', release, {passive:false});
-
-    // Chat
-    $("#chatToggle").addEventListener('click', ()=> $("#chatPanel").classList.add('open'));
-    $("#closeChat").addEventListener('click', ()=> $("#chatPanel").classList.remove('open'));
-    $("#sendBtn").addEventListener('click', sendChat);
-    $("#messageInput").addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
-
-    function sendChat(){
-      const val = $("#messageInput").value.trim(); if(!val) return;
-      if (!currentRoom || !socket) return addMsg('join a room first','error');
-      socket.emit('roomcast', { roomId: currentRoom, message: val });
-      addMsg('you: '+val);
-      $("#messageInput").value='';
-    }
-    if (!socket) {
-      // listen to server room messages (reusing 'chat-message' from your earlier pages if present)
-      // Here we hook to 'roomcast' echo (server should broadcast back). If your server uses a different event, adapt here.
-      // We also keep 'chat-message' to remain compatible with previous implementation.
-      bootSocket();
-      socket.on('roomcast', ({ username, message })=> addMsg(`${username||'user'}: ${message}`));
-      socket.on('chat-message', ({ username, message })=> addMsg(`${username||'user'}: ${message}`));
+        stream = await getMic();
+        setupLevelMeter(stream);
+        audioEl = document.createElement('audio');
+        audioEl.autoplay = true;
+        // try to honor chosen output
+        if(typeof audioEl.setSinkId === 'function' && $('out').value){
+          try{ await audioEl.setSinkId($('out').value); }catch(e){}
+        }
+        $('talk').disabled = false;
+        log('mic ready','ok');
+      }catch(e){
+        log('enable failed: '+e.message,'err');
+      }
     }
 
-    function randomRoom(){ const c='ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s=''; for(let i=0;i<6;i++) s+=c[Math.floor(Math.random()*c.length)]; return s; }
+    async function makePeer(){
+      pc = new RTCPeerConnection(ice);
+      pc.onicecandidate = (ev)=>{
+        if(ev.candidate){
+          socket.emit('signal',{roomId, to:'*', data:{candidate: ev.candidate}});
+        }
+      };
+      pc.ontrack = (ev)=>{
+        // play first remote track
+        if(audioEl) audioEl.srcObject = ev.streams[0];
+      };
+    }
 
-    // accessibility / small polish
-    document.addEventListener('keydown', e=>{
-      if (e.key===' ' && document.activeElement===document.body){ e.preventDefault(); setPushToTalk(true); }
-      if (e.key==='Escape'){ $("#chatPanel").classList.remove('open'); setPushToTalk(false); }
-    });
-    document.addEventListener('keyup', e=>{
-      if (e.key===' ' && document.activeElement===document.body){ e.preventDefault(); setPushToTalk(false); }
-    });
-    </script>
+    async function talkStart(){
+      if(!stream) return;
+      if(!pc){ await makePeer(); }
+      // add sending track
+      if(pc.getSenders().length===0){
+        const track = stream.getAudioTracks()[0];
+        pc.addTrack(track, stream);
+      }
+      const offer = await pc.createOffer({offerToReceiveAudio:true});
+      await pc.setLocalDescription(offer);
+      socket.emit('signal',{roomId, to:'*', data:{sdp: pc.localDescription}});
+    }
+
+    function talkStop(){
+      if(pc){
+        pc.getSenders().forEach(s=>{ try{ pc.removeTrack(s);}catch{} });
+        pc.close(); pc = null;
+      }
+    }
+
+    // UI hooks
+    $('refresh').onclick = listDevices;
+    $('enable').onclick = enable;
+    $('join').onclick = join;
+    $('ping').onclick = ()=> socket.emit('ping', Date.now());
+    $('talk').onmousedown = talkStart;
+    $('talk').onmouseup = talkStop;
+    $('talk').ontouchstart = (e)=>{ e.preventDefault(); talkStart(); };
+    $('talk').ontouchend = (e)=>{ e.preventDefault(); talkStop(); };
+
+    // boot
+    (async ()=>{
+      try{ await navigator.mediaDevices.getUserMedia({audio:true}); }catch{}
+      await listDevices();
+      wireSocket();
+    })();
+  </script>
 </body>
 </html>
