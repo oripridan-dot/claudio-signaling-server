@@ -3,19 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Claudio — sanity test</title>
+  <title>Claudio — sanity test (multi-peer)</title>
   <style>
     body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial;background:#0a0a0a;color:#e5e5e5}
-    .wrap{max-width:720px;margin:24px auto;padding:24px}
-    h1{margin:0 0 12px 0;font-weight:600}
-    .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
-    input,button,select{background:#171717;color:#e5e5e5;border:1px solid #2a2a2a;border-radius:8px;padding:10px 12px}
-    button{cursor:pointer}
-    button:disabled{opacity:.5;cursor:not-allowed}
-    .log{background:#0d0d0d;border:1px solid #252525;border-radius:8px;padding:8px;height:160px;overflow:auto;font:12px ui-monospace,Menlo,Consolas,monospace;white-space:pre}
+    .wrap{max-width:960px;margin:24px auto;padding:24px}
+    h1{margin:0 0 12px 0;font-weight:700;letter-spacing:.2px}
+    .row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+    input,button,select{background:#171717;color:#e5e5e5;border:1px solid #2a2a2a;border-radius:10px;padding:10px 12px}
+    button{cursor:pointer} button:disabled{opacity:.5;cursor:not-allowed}
+    .log{background:#0d0d0d;border:1px solid #252525;border-radius:10px;padding:8px;height:180px;overflow:auto;font:12px ui-monospace,Menlo,Consolas,monospace;white-space:pre}
     .meter{height:10px;background:#222;border:1px solid #333;border-radius:6px;overflow:hidden}
     .bar{height:100%;width:0;background:linear-gradient(90deg,#43e,#3c8,#fc3,#f44)}
     .ok{color:#22c55e}.warn{color:#f59e0b}.err{color:#ef4444}
+    .pill{padding:6px 8px;border:1px solid #2a2a2a;border-radius:999px;background:#121212;font-size:12px}
   </style>
 </head>
 <body>
@@ -27,7 +27,7 @@
       <input id="name" value="musician" />
       <button id="join">Join</button>
       <button id="ping">Ping</button>
-      <span id="rtt">rtt: —</span>
+      <span id="rtt" class="pill">rtt: —</span>
     </div>
 
     <div class="row">
@@ -39,30 +39,41 @@
     <div class="row">
       <button id="enable">Enable sound</button>
       <button id="talk" disabled>🎙️ Hold to talk</button>
+      <span id="peerc" class="pill">peers: 0</span>
     </div>
 
-    <div class="row">
-      <div class="meter" style="flex:1"><div id="bar" class="bar"></div></div>
-    </div>
+    <div class="row"><div class="meter" style="flex:1"><div id="bar" class="bar"></div></div></div>
 
     <div class="row">
       <div id="log" class="log"></div>
     </div>
+
+    <!-- hidden remote sinks -->
+    <div id="sinks" style="display:none"></div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const $ = (id)=>document.getElementById(id);
-    const log = (m,c='')=>{ const el=$('log'); const t=document.createElement('div'); if(c)t.className=c; t.textContent=m; el.appendChild(t); el.scrollTop=el.scrollHeight; };
+    const $ = id => document.getElementById(id);
+    const log = (m,c='') => { const el=$('log'); const d=document.createElement('div'); if(c)d.className=c; d.textContent=m; el.appendChild(d); el.scrollTop=el.scrollHeight; };
 
-    let socket, stream, pc, roomId = 'STUDIO1', meter, audioEl;
-    const ice = { iceServers: [{urls:'stun:stun.l.google.com:19302'}] };
+    let roomId = 'STUDIO1';
+    let socket, selfId;
+    let users = [];       // [{id, username, instrument}]
+    let peers = new Map(); // id -> { pc, audioEl, sender? }
+    let stream;
 
+    const ice = {
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      iceCandidatePoolSize: 4
+    };
+
+    // ========== devices ==========
     async function listDevices(){
       const devs = await navigator.mediaDevices.enumerateDevices();
       const mics = devs.filter(d=>d.kind==='audioinput');
       const outs = devs.filter(d=>d.kind==='audiooutput');
-      $('mic').innerHTML = mics.map(d=>`<option value="${d.deviceId}">${d.label||'Mic'}</option>`).join('');
+      $('mic').innerHTML = mics.map(d=>`<option value="${d.deviceId}">${d.label||'Microphone'}</option>`).join('');
       $('out').innerHTML = outs.map(d=>`<option value="${d.deviceId}">${d.label||'Output'}</option>`).join('');
     }
 
@@ -83,116 +94,163 @@
     }
 
     function setupLevelMeter(src){
-      const ac = new (window.AudioContext||window.webkitAudioContext)();
-      const srcNode = ac.createMediaStreamSource(src);
+      const AC = window.AudioContext || window.webkitAudioContext;
+      const ac = new AC();
+      const node = ac.createMediaStreamSource(src);
       const analyser = ac.createAnalyser();
       analyser.fftSize = 1024;
       const data = new Uint8Array(analyser.frequencyBinCount);
-      srcNode.connect(analyser);
+      node.connect(analyser);
       function tick(){
         analyser.getByteTimeDomainData(data);
-        // Compute RMS
         let sum=0; for(let i=0;i<data.length;i++){ const v=(data[i]-128)/128; sum+=v*v; }
         const rms = Math.sqrt(sum/data.length);
-        $('bar').style.width = Math.min(100, (rms*200)).toFixed(1)+'%';
+        $('bar').style.width = Math.min(100, rms*200).toFixed(1)+'%';
         requestAnimationFrame(tick);
       }
       tick();
     }
 
+    // ========== socket ==========
     function wireSocket(){
       socket = io({ transports:['websocket','polling'] });
-      socket.on('connect', ()=>{ log('socket connected','ok'); });
-      socket.on('disconnect', r=> log('socket disconnect: '+r,'warn'));
-      socket.on('pong', ts=> $('rtt').textContent = 'rtt: '+(Date.now()-ts)+'ms');
-      socket.on('joined-room', ({roomId, users})=>{
-        log('joined '+roomId+' users:'+users.length,'ok');
+      socket.on('connect', ()=> log('socket connected','ok'));
+      socket.on('disconnect', r => log('socket disconnected: '+r,'warn'));
+      socket.on('pong', ts => $('rtt').textContent = 'rtt: '+(Date.now()-ts)+'ms');
+
+      socket.on('joined-room', ({roomId:rid, users:us, selfId:me}) => {
+        roomId = rid; users = us; selfId = me;
+        $('peerc').textContent = 'peers: '+(users.length-1);
+        log(`joined ${rid} users:${users.length}`,'ok');
       });
-      socket.on('users-updated', ({users})=> log('users: '+users.map(u=>u.username).join(', ')));
-      socket.on('signal', async ({from, data})=>{
-        if(!pc) return;
-        if(data.sdp){
-          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          if(data.sdp.type==='offer'){
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            socket.emit('signal',{to: from, roomId, data:{sdp: pc.localDescription}});
+
+      socket.on('users-updated', ({users:us}) => {
+        users = us;
+        $('peerc').textContent = 'peers: '+(users.length-1);
+        log('users: '+users.map(u=>u.username||u.id).join(', '));
+      });
+
+      socket.on('user-left', ({id}) => {
+        closePeer(id);
+      });
+
+      // main signaling
+      socket.on('signal', async ({from, data}) => {
+        let peer = peers.get(from);
+        if (!peer) peer = await createPeer(from);
+
+        if (data.sdp) {
+          const desc = new RTCSessionDescription(data.sdp);
+          if (desc.type === 'offer') {
+            await peer.pc.setRemoteDescription(desc);
+            const answer = await peer.pc.createAnswer();
+            await peer.pc.setLocalDescription(answer);
+            socket.emit('signal', { to: from, roomId, data: { sdp: peer.pc.localDescription } });
+          } else if (desc.type === 'answer') {
+            await peer.pc.setRemoteDescription(desc);
           }
-        }else if(data.candidate){
-          try{ await pc.addIceCandidate(data.candidate); }catch(e){ log('ice err '+e,'err'); }
+        } else if (data.candidate) {
+          try { await peer.pc.addIceCandidate(data.candidate); } catch (e) { log('ice err '+e,'err'); }
         }
       });
     }
 
-    async function join(){
-      roomId = $('room').value.trim().toUpperCase();
-      const username = $('name').value.trim() || 'musician';
-      socket.emit('join-room', {roomId, username, instrument:'guitar'});
+    // ========== webrtc ==========
+    async function createPeer(remoteId){
+      const pc = new RTCPeerConnection(ice);
+
+      // remote playback
+      const audioEl = document.createElement('audio');
+      audioEl.autoplay = true;
+      const sinkId = $('out').value;
+      if (typeof audioEl.setSinkId === 'function' && sinkId) {
+        try { await audioEl.setSinkId(sinkId); } catch {}
+      }
+      $('sinks').appendChild(audioEl);
+
+      pc.ontrack = (ev) => {
+        audioEl.srcObject = ev.streams[0];
+      };
+
+      pc.onicecandidate = (ev) => {
+        if (ev.candidate) {
+          socket.emit('signal', { to: remoteId ?? '*', roomId, data: { candidate: ev.candidate } });
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
+          closePeer(remoteId);
+        }
+      };
+
+      const obj = { pc, audioEl, sender: null };
+      peers.set(remoteId, obj);
+      return obj;
     }
 
-    async function enable(){
-      try{
+    function closePeer(id){
+      const p = peers.get(id);
+      if (!p) return;
+      try { p.pc.getSenders().forEach(s => { try{ p.pc.removeTrack(s); }catch{} }); } catch {}
+      try { p.pc.close(); } catch {}
+      try { p.audioEl.srcObject = null; p.audioEl.remove(); } catch {}
+      peers.delete(id);
+      $('peerc').textContent = 'peers: '+(users.length-1);
+    }
+
+    async function startTalking(){
+      if (!stream) return;
+
+      // ensure we have peers for all other users
+      const others = users.filter(u => u.id !== selfId);
+      for (const u of others) {
+        let peer = peers.get(u.id);
+        if (!peer) peer = await createPeer(u.id);
+        if (!peer.sender) {
+          const track = stream.getAudioTracks()[0];
+          peer.sender = peer.pc.addTrack(track, stream);
+        }
+        const offer = await peer.pc.createOffer({ offerToReceiveAudio: true });
+        await peer.pc.setLocalDescription(offer);
+        socket.emit('signal', { to: u.id, roomId, data: { sdp: peer.pc.localDescription } });
+      }
+    }
+
+    function stopTalking(){
+      for (const [id, p] of peers) {
+        try { p.pc.getSenders().forEach(s => { try{ p.pc.removeTrack(s); }catch{} }); } catch {}
+        p.sender = null;
+        // keep pc alive for inbound audio
+      }
+    }
+
+    // ========== UI ==========
+    $('refresh').onclick = listDevices;
+    $('enable').onclick = async () => {
+      try {
         stream = await getMic();
         setupLevelMeter(stream);
-        audioEl = document.createElement('audio');
-        audioEl.autoplay = true;
-        // try to honor chosen output
-        if(typeof audioEl.setSinkId === 'function' && $('out').value){
-          try{ await audioEl.setSinkId($('out').value); }catch(e){}
-        }
         $('talk').disabled = false;
         log('mic ready','ok');
-      }catch(e){
-        log('enable failed: '+e.message,'err');
-      }
-    }
+      } catch (e) { log('enable failed: '+e.message,'err'); }
+    };
+    $('join').onclick = () => {
+      roomId = $('room').value.trim().toUpperCase();
+      const username = $('name').value.trim() || 'musician';
+      socket.emit('join-room', { roomId, username, instrument: 'guitar' });
+    };
+    $('ping').onclick = () => socket.emit('ping', Date.now());
 
-    async function makePeer(){
-      pc = new RTCPeerConnection(ice);
-      pc.onicecandidate = (ev)=>{
-        if(ev.candidate){
-          socket.emit('signal',{roomId, to:'*', data:{candidate: ev.candidate}});
-        }
-      };
-      pc.ontrack = (ev)=>{
-        // play first remote track
-        if(audioEl) audioEl.srcObject = ev.streams[0];
-      };
-    }
-
-    async function talkStart(){
-      if(!stream) return;
-      if(!pc){ await makePeer(); }
-      // add sending track
-      if(pc.getSenders().length===0){
-        const track = stream.getAudioTracks()[0];
-        pc.addTrack(track, stream);
-      }
-      const offer = await pc.createOffer({offerToReceiveAudio:true});
-      await pc.setLocalDescription(offer);
-      socket.emit('signal',{roomId, to:'*', data:{sdp: pc.localDescription}});
-    }
-
-    function talkStop(){
-      if(pc){
-        pc.getSenders().forEach(s=>{ try{ pc.removeTrack(s);}catch{} });
-        pc.close(); pc = null;
-      }
-    }
-
-    // UI hooks
-    $('refresh').onclick = listDevices;
-    $('enable').onclick = enable;
-    $('join').onclick = join;
-    $('ping').onclick = ()=> socket.emit('ping', Date.now());
-    $('talk').onmousedown = talkStart;
-    $('talk').onmouseup = talkStop;
-    $('talk').ontouchstart = (e)=>{ e.preventDefault(); talkStart(); };
-    $('talk').ontouchend = (e)=>{ e.preventDefault(); talkStop(); };
+    // push-to-talk
+    $('talk').onmousedown = startTalking;
+    $('talk').onmouseup   = stopTalking;
+    $('talk').ontouchstart = (e)=>{ e.preventDefault(); startTalking(); };
+    $('talk').ontouchend   = (e)=>{ e.preventDefault(); stopTalking(); };
 
     // boot
     (async ()=>{
-      try{ await navigator.mediaDevices.getUserMedia({audio:true}); }catch{}
+      try { await navigator.mediaDevices.getUserMedia({audio:true}); } catch {}
       await listDevices();
       wireSocket();
     })();
