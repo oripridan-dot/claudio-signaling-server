@@ -1,22 +1,24 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Claudio — P2P local (host only)</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Claudio — P2P local (host-only)</title>
 <style>
-  :root{--bg:#0b0b0c;--panel:#15161a;--ink:#e7e7ea;--mut:#9aa0a6;--pri:#60a5fa;--ok:#22c55e;--bad:#ef4444}
+  :root{--bg:#0b0c0f;--panel:#15161a;--ink:#e7e7ea;--mut:#9aa0a6;--pri:#60a5fa;--ok:#22c55e;--bad:#ef4444}
   html,body{background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Inter,Roboto; margin:0}
-  .wrap{max-width:900px;margin:26px auto;padding:0 16px}
-  h1{margin:0 0 10px;font-size:clamp(22px,2.6vw,28px)}
+  .wrap{max-width:960px;margin:26px auto;padding:0 16px}
+  h1{margin:0 0 12px;font-size:clamp(22px,2.6vw,28px)}
   .row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
-  button,select{background:#101115;color:var(--ink);border:1px solid #2a2d36;border-radius:9px;padding:8px 10px;cursor:pointer}
+  input[type=text],select,button{background:#101115;color:var(--ink);border:1px solid #2a2d36;border-radius:9px;padding:8px 10px}
+  button{cursor:pointer}
   button.pri{background:rgba(96,165,250,.14);border-color:#2b4a7a}
-  .card{background:var(--panel);border:1px solid #22242a;border-radius:12px;padding:12px 12px;margin:12px 0}
+  .card{background:var(--panel);border:1px solid #22242a;border-radius:12px;padding:12px;margin:12px 0}
   .pill{border:1px solid #2a2d36;border-radius:999px;padding:4px 8px;font-size:12px}
   .mut{color:var(--mut)} .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   .ok{color:var(--ok)} .bad{color:var(--bad)}
-  audio{width:100%; max-width:560px; background:#0e0f13; border-radius:8px}
+  audio{width:100%;max-width:580px;background:#0f1116;border-radius:8px}
+  meter{width:200px;height:10px}
 </style>
 </head>
 <body>
@@ -24,13 +26,14 @@
   <h1>Claudio — P2P local (host-only)</h1>
 
   <div class="row">
+    <input id="room" type="text" value="STUDIO1" maxlength="16" />
     <button id="enable" class="pri">Enable audio</button>
     <button id="join" class="pri">Join</button>
     <button id="leave">Leave</button>
     <button id="aggr" class="pri">Aggressive</button>
     <button id="safe">Safe</button>
     <span id="state" class="pill">idle</span>
-    <span class="pill">role: <b id="role">…</b></span>
+    <span class="pill">role: <b id="role">–</b></span>
     <span class="pill">rtt: <b id="rtt">–</b></span>
     <span class="pill">peers: <b id="peers">0</b></span>
   </div>
@@ -44,9 +47,10 @@
         <select id="outSel"></select>
       </label>
       <button id="refresh">Refresh devices</button>
-      <button id="toggleTalk">Talkback: OFF</button>
+      <button id="talk">Talkback: OFF</button>
+      <span class="pill mut">mic level:</span><meter id="lvl" min="0" max="1" low="0.1" high="0.3" optimum="0.5" value="0"></meter>
     </div>
-    <div class="mut small">Tips: use **wired** headphones; macOS Audio MIDI → 48 kHz; close any virtual audio apps.</div>
+    <div class="mut small">Tips: use <b>wired</b> headphones; macOS Audio MIDI → 48 kHz; close virtual audio apps. Keep both tabs in the <b>same Chrome profile</b> (not one incognito).</div>
   </div>
 
   <div class="card">
@@ -54,69 +58,73 @@
   </div>
 
   <div class="card">
-    <h3 style="margin:0 0 6px">Log</h3>
-    <pre id="log" class="mono" style="max-height:220px;overflow:auto;margin:0"></pre>
+    <h3 style="margin:0 0 6px">Diagnostics</h3>
+    <pre id="diag" class="mono" style="max-height:220px;overflow:auto;margin:0"></pre>
   </div>
 </div>
 
 <script>
-const logEl = document.getElementById('log');
+const logEl = document.getElementById('diag');
 const log = (...a)=>{ logEl.textContent += a.join(' ') + '\\n'; logEl.scrollTop = logEl.scrollHeight; };
 const set = (id,v)=>document.getElementById(id).textContent = v;
 
-let ac, micStream, pc, dc, ch, rx = document.getElementById('rx');
-let talking = false;
-let currentOut = null;
-
-const channelName = 'claudio-local-p2p';
-ch = new BroadcastChannel(channelName);
+let ac, meterNode, micStream, pc, dc, rx = document.getElementById('rx');
+let talking = false, outSink = null, room = () => (document.getElementById('room').value || 'STUDIO1').toUpperCase();
 let myId = Math.random().toString(36).slice(2);
-let peerCount = 0;
-let role = (Math.random()<0.5)?'caller':'callee';
+let role = 'unknown', peerSeen = {};
 set('role', role);
 
+// ---------- robust room bus ----------
+function mkBus(){
+  const name = `claudio-local-p2p:${room()}`;
+  let bc = ('BroadcastChannel' in self) ? new BroadcastChannel(name) : null;
+  log('bus on', name, bc? '(BroadcastChannel)': '(storage-fallback)');
+  const send = (msg) => {
+    const payload = {...msg, room: room(), id: myId, ts: Date.now()};
+    if (bc) bc.postMessage(payload);
+    localStorage.setItem(name, JSON.stringify(payload)); // storage-event fallback (same profile only)
+    localStorage.removeItem(name);
+  };
+  const on = (cb) => {
+    if (bc) bc.onmessage = (ev)=> cb(ev.data||{});
+    window.addEventListener('storage', (ev)=>{
+      if (ev.key !== name || !ev.newValue) return;
+      try { cb(JSON.parse(ev.newValue)); } catch {}
+    });
+  };
+  return {send, on};
+}
+let bus = mkBus();
+
+// ---------- utils ----------
 function sdpTightenOpus(sdp){
-  // Try to enforce Opus, low ptime, decent bitrate, mono
-  sdp = sdp.replace(/a=fmtp:(\\d+) .*\\r\\n/g, (m,payload)=>{
-    if (!/opus/i.test(m)) return m;
-    const params = [
-      'stereo=0','sprop-stereo=0',
-      'maxplaybackrate=48000','ptime=3','minptime=3','maxptime=10',
-      'maxaveragebitrate=128000','cbr=0','useinbandfec=1','usedtx=0'
-    ].join(';');
-    return `a=fmtp:${payload} ${params}\\r\\n`;
-  });
-  // prefer 48k mono
-  sdp = sdp.replace(/a=fmtp:(\\d+) (.*)/g, (m,p,rest)=>{
-    if (!/opus/i.test(m)) return m;
-    return `a=fmtp:${p} ${rest}`;
-  });
+  // Keep opus only, set ptime 3–5ms, mono, fec on, modest bitrate
+  sdp = sdp.replace(/a=rtpmap:(\\d+) opus\\/48000\\/2/g, 'a=rtpmap:$1 opus/48000/2'); // keep as-is (Chrome likes /2)
+  sdp = sdp.replace(/a=fmtp:(\\d+) .*/g, (m,p)=>`a=fmtp:${p} stereo=0;sprop-stereo=0;ptime=3;minptime=3;maxptime=10;maxaveragebitrate=128000;useinbandfec=1;usedtx=0;cbr=0`);
   return sdp;
 }
-
 function keepHostCandidates(sdp){
-  // strip srflx/relay candidates; keep only typ host
-  return sdp.split('\\r\\n').filter(l=>{
-    if (!l.startsWith('a=candidate:')) return true;
-    return / typ host /.test(l);
-  }).join('\\r\\n');
+  return sdp.split('\\r\\n').filter(l=> !l.startsWith('a=candidate:') || / typ host /.test(l)).join('\\r\\n');
 }
+function setState(s){ document.getElementById('state').textContent = s; }
 
+// ---------- devices & audio ----------
 async function refreshDevs(){
   const devs = await navigator.mediaDevices.enumerateDevices();
   const micSel = document.getElementById('micSel');
   const outSel = document.getElementById('outSel');
   micSel.innerHTML=''; outSel.innerHTML='';
-  devs.filter(d=>d.kind==='audioinput').forEach(d=>{
-    const o = document.createElement('option'); o.value=d.deviceId; o.textContent=d.label||'mic';
-    micSel.appendChild(o);
-  });
-  devs.filter(d=>d.kind==='audiooutput').forEach(d=>{
-    const o = document.createElement('option'); o.value=d.deviceId; o.textContent=d.label||'output';
-    outSel.appendChild(o);
-  });
+  devs.filter(d=>d.kind==='audioinput').forEach(d=>{ const o=document.createElement('option'); o.value=d.deviceId; o.textContent=d.label||'mic'; micSel.appendChild(o); });
+  devs.filter(d=>d.kind==='audiooutput').forEach(d=>{ const o=document.createElement('option'); o.value=d.deviceId; o.textContent=d.label||'output'; outSel.appendChild(o); });
+  log('devices', devs.length);
 }
-
+async function setOutput(){
+  const sinkId = document.getElementById('outSel').value;
+  if (rx.sinkId !== undefined && sinkId){
+    try{ await rx.setSinkId(sinkId); outSink = sinkId; log('output sink =>', sinkId); }
+    catch(e){ log('setSinkId failed', e.toString()); }
+  }
+}
 async function getMic(){
   const micId = document.getElementById('micSel').value || undefined;
   if (micStream) micStream.getTracks().forEach(t=>t.stop());
@@ -127,155 +135,194 @@ async function getMic(){
       echoCancellation:false, noiseSuppression:false, autoGainControl:false
     }
   });
+  // simple level meter
+  if (!ac) ac = new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
+  const src = ac.createMediaStreamSource(micStream);
+  meterNode = ac.createScriptProcessor(512,1,1);
+  meterNode.onaudioprocess = (e)=>{
+    const d=e.inputBuffer.getChannelData(0); let sum=0; for(let i=0;i<d.length;i++){ sum += d[i]*d[i]; }
+    document.getElementById('lvl').value = Math.sqrt(sum/d.length);
+  };
+  src.connect(meterNode).connect(ac.destination); // tiny monitor to drive meter; not audible
   log('mic ready');
 }
 
-async function setOutput(){
-  const sinkId = document.getElementById('outSel').value;
-  if (rx.sinkId !== undefined && sinkId) {
-    try { await rx.setSinkId(sinkId); currentOut = sinkId; log('output =>', sinkId); }
-    catch(e){ log('setSinkId failed', e.toString()); }
-  }
-}
-
-function setState(s){ document.getElementById('state').textContent = s; }
-
-function aggressive(){
-  pc.getSenders().forEach(s=>{
-    if (s.track && s.track.kind==='audio'){
-      const p = s.getParameters();
-      p.encodings = [{ptime:3}]; // hint
-      s.setParameters(p).catch(()=>{});
-    }
-  });
-  log('aggressive set (ptime≈2.5–5ms, tiny jitter on recv)');
-}
-
-function safe(){
-  pc.getSenders().forEach(s=>{
-    if (s.track && s.track.kind==='audio'){
-      const p = s.getParameters();
-      p.encodings = [{ptime:10}];
-      s.setParameters(p).catch(()=>{});
-    }
-  });
-  log('safe set (ptime≈10ms)');
-}
-
-async function join(){
-  if (!micStream) await getMic();
-
-  pc = new RTCPeerConnection({
-    iceServers: [], // no TURN/STUN => host only
-    iceTransportPolicy: 'all',
-    bundlePolicy: 'max-bundle'
-  });
-
-  // add mic
-  const track = micStream.getAudioTracks()[0];
-  pc.addTrack(track, micStream);
-
-  // receive
-  pc.ontrack = ev=>{
-    rx.srcObject = ev.streams[0];
-    log('remote track');
-  };
-
-  // datachannel for ping
-  if (role==='caller'){
-    dc = pc.createDataChannel('ping');
-    bindDC(dc);
-  }else{
-    pc.ondatachannel = (ev)=>{ dc = ev.channel; bindDC(dc); };
-  }
-
-  // ICE: filter out non-host candidates
-  pc.onicecandidate = e=>{
-    if (!e.candidate) return;
-    if (!/ typ host /.test(e.candidate.candidate)) return; // drop srflx/relay/simhost
-    ch.postMessage({t:'cand', id:myId, cand:e.candidate});
-  };
-
-  // exchange SDP via BroadcastChannel
-  pc.onconnectionstatechange = ()=>{ setState(pc.connectionState); log('state', pc.connectionState); };
-  ch.onmessage = async ev=>{
-    const m = ev.data||{};
-    if (m.id===myId) return;
-    if (m.t==='offer' && role==='callee'){
-      await pc.setRemoteDescription(new RTCSessionDescription({type:'offer', sdp: m.sdp}));
-      const ans = await pc.createAnswer();
-      let sdp = sdpTightenOpus(ans.sdp);
-      sdp = keepHostCandidates(sdp);
-      await pc.setLocalDescription({type:'answer', sdp});
-      ch.postMessage({t:'answer', id:myId, sdp});
-      peerCount = 1; set('peers', '1');
-    }
-    if (m.t==='answer' && role==='caller'){
-      await pc.setRemoteDescription(new RTCSessionDescription({type:'answer', sdp: m.sdp}));
-      peerCount = 1; set('peers', '1');
-    }
-    if (m.t==='cand'){
-      try{ await pc.addIceCandidate(m.cand); }catch(e){ /* ignore race */ }
-    }
-  };
-
-  // make local offer (caller only)
-  if (role==='caller'){
-    const off = await pc.createOffer({offerToReceiveAudio:true, offerToReceiveVideo:false});
-    let sdp = sdpTightenOpus(off.sdp);
-    sdp = keepHostCandidates(sdp);
-    await pc.setLocalDescription({type:'offer', sdp});
-    ch.postMessage({t:'offer', id:myId, sdp});
-  }
-  setState('connecting');
-}
-
+// ---------- WebRTC ----------
 function bindDC(dch){
-  dch.onopen = ()=>{ log('dc open'); pingLoop(); };
+  dc = dch;
+  dch.onopen = ()=>{ log('datachannel open'); pingLoop(); };
   dch.onmessage = (e)=>{
-    const obj = JSON.parse(e.data||'{}');
-    if (obj.t==='ping'){ dch.send(JSON.stringify({t:'pong', ts: obj.ts})); }
-    if (obj.t==='pong'){
-      const rtt = Math.round(performance.now() - obj.ts);
-      set('rtt', rtt+' ms');
-    }
+    const m = JSON.parse(e.data||'{}');
+    if (m.t==='ping'){ dch.send(JSON.stringify({t:'pong', ts:m.ts})); }
+    if (m.t==='pong'){ set('rtt', Math.round(performance.now()-m.ts)+' ms'); }
   };
 }
-
 function pingLoop(){
   if (!dc || dc.readyState!=='open') return;
   dc.send(JSON.stringify({t:'ping', ts: performance.now()}));
   setTimeout(pingLoop, 1000);
 }
 
+async function makePC(){
+  pc = new RTCPeerConnection({ iceServers:[], bundlePolicy:'max-bundle' });
+  // host-only: drop non-host ICE candidates
+  pc.onicecandidate = (e)=>{
+    if (!e.candidate) return;
+    if (/ typ host /.test(e.candidate.candidate)) bus.send({t:'cand', cand:e.candidate});
+  };
+  pc.onconnectionstatechange = ()=>{ setState(pc.connectionState); log('pc state', pc.connectionState); };
+  pc.ontrack = async (ev)=>{
+    rx.srcObject = ev.streams[0];
+    try{ await rx.play(); }catch{}
+    log('remote track');
+  };
+  // add mic track (muted until talkback ON)
+  const track = micStream.getAudioTracks()[0];
+  track.enabled = talking;
+  pc.addTrack(track, micStream);
+}
+
+// ---------- Signaling (glare-free, deterministic) ----------
+let helloTimer = null, heartbeat = null, offered = false, answered = false;
+
+function startPresence(){
+  peerSeen = {};
+  bus.send({t:'hello'});
+  helloTimer = setInterval(()=> bus.send({t:'hello'}), 1000);
+  heartbeat = setInterval(()=> bus.send({t:'hb'}), 1500);
+}
+
+function stopPresence(){
+  clearInterval(helloTimer); clearInterval(heartbeat);
+}
+
+function decideRole(otherId){
+  // lower id becomes caller to avoid glare
+  return (myId < otherId) ? 'caller' : 'callee';
+}
+
+bus.on(async (m)=>{
+  if (m.room !== room() || m.id===myId) return;
+
+  if (m.t==='hello' || m.t==='hb'){
+    peerSeen[m.id] = Date.now();
+    const alive = Object.values(peerSeen).filter(ts=> Date.now()-ts < 4000).length;
+    set('peers', String(alive));
+  }
+
+  if (m.t==='hello' && !pc){
+    role = decideRole(m.id);
+    set('role', role);
+  }
+
+  // SDP flow
+  if (m.t==='offer'){
+    offered = true;
+    await pc.setRemoteDescription(new RTCSessionDescription({type:'offer', sdp:m.sdp}));
+    const ans = await pc.createAnswer();
+    let sdp = sdpTightenOpus(ans.sdp); sdp = keepHostCandidates(sdp);
+    await pc.setLocalDescription({type:'answer', sdp});
+    bus.send({t:'answer', sdp});
+  }
+  if (m.t==='answer'){
+    answered = true;
+    await pc.setRemoteDescription(new RTCSessionDescription({type:'answer', sdp:m.sdp}));
+  }
+  if (m.t==='cand'){
+    try{ await pc.addIceCandidate(m.cand); }catch(e){ /* race ok */ }
+  }
+});
+
+// ---------- actions ----------
+async function join(){
+  if (!micStream) await getMic();
+  await makePC();
+
+  // data channel
+  if (role==='caller'){
+    bindDC(pc.createDataChannel('ping'));
+  }else{
+    pc.ondatachannel = ev => bindDC(ev.channel);
+  }
+
+  // who creates offer? if role unknown yet, wait for a hello or short timeout
+  const maybeOffer = async ()=>{
+    if (role!=='caller' || offered || answered) return;
+    const off = await pc.createOffer({offerToReceiveAudio:true});
+    let sdp = sdpTightenOpus(off.sdp); sdp = keepHostCandidates(sdp);
+    await pc.setLocalDescription({type:'offer', sdp});
+    bus.send({t:'offer', sdp});
+  };
+
+  setState('connecting');
+  startPresence();
+  setTimeout(maybeOffer, 600); // give discovery a moment
+  setTimeout(maybeOffer, 1200); // second chance
+}
+
 async function leave(){
-  try{ ch.postMessage({t:'bye', id:myId}); }catch{}
-  if (pc){ pc.getSenders().forEach(s=>s.track && s.track.stop()); pc.close(); pc=null; }
+  stopPresence();
+  try{ bus.send({t:'bye'}); }catch{}
+  if (pc){ pc.getSenders().forEach(s=>s.track && s.track.stop()); try{pc.close();}catch{} pc=null; }
   rx.srcObject = null; set('peers','0'); set('rtt','–'); setState('idle'); log('left');
 }
 
+// ---------- UX buttons ----------
 document.getElementById('enable').onclick = async ()=>{
-  ac = new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
-  await refreshDevs(); await getMic(); await setOutput();
-  setState('ready'); log('audio ready', ac.sampleRate);
+  try{
+    ac = new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
+    await refreshDevs(); await getMic(); await setOutput();
+    setState('ready'); log('audio ready', ac.baseLatency? `baseLatency=${(ac.baseLatency*1000).toFixed(2)}ms` : '');
+  }catch(e){
+    log('Enable failed:', e.name, e.message);
+  }
 };
-
 document.getElementById('join').onclick = join;
 document.getElementById('leave').onclick = leave;
 document.getElementById('refresh').onclick = async ()=>{ await refreshDevs(); await setOutput(); };
 document.getElementById('outSel').onchange = setOutput;
-
-document.getElementById('aggr').onclick = ()=>aggressive();
-document.getElementById('safe').onclick = ()=>safe();
-
-document.getElementById('toggleTalk').onclick = ()=>{
-  talking=!talking;
-  const btn = document.getElementById('toggleTalk');
-  btn.textContent = 'Talkback: ' + (talking?'ON':'OFF');
+document.getElementById('talk').onclick = ()=>{
+  talking = !talking;
+  document.getElementById('talk').textContent = 'Talkback: ' + (talking?'ON':'OFF');
   if (micStream) micStream.getAudioTracks().forEach(t=> t.enabled = talking);
 };
+document.getElementById('aggr').onclick = ()=>{
+  if (!pc) return;
+  pc.getSenders().forEach(s=>{
+    if (s.track && s.track.kind==='audio'){
+      const p = s.getParameters(); p.encodings = [{ptime:3}]; s.setParameters(p).catch(()=>{});
+    }
+  });
+  log('aggressive set (ptime≈2.5–5ms, tiny jitter on recv)');
+};
+document.getElementById('safe').onclick = ()=>{
+  if (!pc) return;
+  pc.getSenders().forEach(s=>{
+    if (s.track && s.track.kind==='audio'){
+      const p = s.getParameters(); p.encodings = [{ptime:10}]; s.setParameters(p).catch(()=>{});
+    }
+  });
+  log('safe set (ptime≈10ms)');
+};
 
-// start with mic muted (press Talkback to send)
+// rebuild bus if room changes
+document.getElementById('room').addEventListener('change', ()=>{ bus = mkBus(); });
+
+// autoplay sanity
+rx.addEventListener('play', ()=> log('audio element playing'));
+rx.addEventListener('error', (e)=> log('audio error', e.message||''));
+
+// permissions snapshot
+(async ()=>{
+  if (navigator.permissions){
+    try{
+      const s = await navigator.permissions.query({name:'microphone'});
+      log('perm mic:', s.state);
+      s.onchange = ()=> log('perm mic changed:', s.state);
+    }catch{}
+  }
+})();
+
 navigator.mediaDevices.ondevicechange = refreshDevs;
 </script>
 </body>
