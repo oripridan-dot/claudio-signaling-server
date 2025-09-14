@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Claudio — Latency Lab</title>
+<style>
+  :root{
+    --bg:#0b0b0c;--panel:#141417;--ink:#e7e7ea;--mut:#9aa0a6;
+    --pri:#60a5fa;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;
+  }
+  html,body{background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial; margin:0}
+  .wrap{max-width:1100px;margin:30px auto;padding:0 16px}
+  h1{font-weight:700;letter-spacing:.2px;margin:0 0 14px;font-size:clamp(22px,2.8vw,30px)}
+  .row{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0}
+  .card{background:var(--panel);border:1px solid #22242a;border-radius:12px;padding:14px 14px}
+  .card h3{margin:0 0 10px;font-size:15px;color:#cbd5e1}
+  label{font-size:12px;color:var(--mut)}
+  input[type=range]{width:220px}
+  select,button,input[type=number]{background:#101115;color:var(--ink);border:1px solid #2a2d36;border-radius:8px;padding:8px 10px}
+  button{cursor:pointer}
+  button.pri{background:rgba(96,165,250,.15);border-color:#2b4a7a}
+  .pill{padding:4px 8px;border-radius:999px;font-size:12px;border:1px solid #2a2d36;background:#0e0f13}
+  .grid{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:12px}
+  .meter{height:10px;background:#0e0f13;border:1px solid #2a2d36;border-radius:999px;overflow:hidden}
+  .bar{height:100%;background:linear-gradient(90deg,#22c55e,#f59e0b,#ef4444);width:0%}
+  .mut{color:var(--mut)}
+  .small{font-size:12px}
+  .mono{font-family:ui-monospace, SFMono-Regular,Menlo,Consolas,monospace}
+  .hl{color:#a5b4fc}
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  @media (max-width:920px){.grid{grid-template-columns:1fr 1fr}.row{gap:8px}}
+  @media (max-width:640px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Claudio — latency lab</h1>
+
+  <div class="row">
+    <button id="enable" class="pri">Enable audio</button>
+    <button id="dry" class="">Dry</button>
+    <button id="proc" class="pri">Simulated</button>
+    <span id="status" class="pill">idle</span>
+  </div>
+
+  <div class="row card">
+    <div style="flex:1">
+      <h3>Device preset</h3>
+      <div class="row">
+        <select id="devicePreset">
+          <option value="apollo">UAD Apollo Solo (TB3)</option>
+          <option value="volt">UA Volt (USB2)</option>
+          <option value="sq">A&H SQ / dLive (USB)</option>
+          <option value="qu">A&H QU (USB)</option>
+          <option value="cq">A&H CQ (USB)</option>
+          <option value="dante">Dante (hardware fabric)</option>
+          <option value="dvs">Dante Virtual Soundcard</option>
+          <option value="builtin">Mac built-in mic + jack</option>
+        </select>
+        <label>Assumed device one-way (ms)
+          <input id="devMs" type="number" min="0" step="0.5" value="3" style="width:90px">
+        </label>
+      </div>
+      <p class="small mut">Tip: set this to what you expect from your interface tomorrow; this number feeds the estimator.</p>
+    </div>
+
+    <div style="flex:1">
+      <h3>Network & codec preset</h3>
+      <div class="row">
+        <select id="netPreset">
+          <option value="webrtc_tight">WebRTC tight (Opus 2.5 ms, small jitter)</option>
+          <option value="webrtc_safe">WebRTC safe (Opus 5–10 ms, medium jitter)</option>
+          <option value="webtransport">WebTransport (QUIC) tuned</option>
+          <option value="pcm_udp">PCM (JackTrip-style 64-sample pkts)</option>
+        </select>
+        <label>RTT (ms)
+          <input id="rtt" type="number" min="0" step="1" value="20" style="width:80px">
+        </label>
+        <button id="autoping">Auto-ping</button>
+      </div>
+      <div class="small mut">RTT/2 is added to the estimate. Auto-ping hits this host and fills RTT.</div>
+    </div>
+
+    <div style="flex:1">
+      <h3>Estimated one-way (ms)</h3>
+      <div class="row">
+        <div class="pill">device: <span id="estDev">3</span></div>
+        <div class="pill">codec+buffer: <span id="estCodec">8</span></div>
+        <div class="pill">network (rtt/2): <span id="estNet">10</span></div>
+        <div class="pill">total: <span id="estTotal" class="hl">21</span></div>
+      </div>
+      <div class="meter" title="current simulated playout buffer">
+        <div id="bufBar" class="bar"></div>
+      </div>
+      <div class="small mut mono" id="nowStr"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Fine controls (apply live)</h3>
+    <div class="grid">
+      <div>
+        <label>Base delay (ms) <span id="baseDelayV" class="hl">12</span></label><br/>
+        <input type="range" id="baseDelay" min="0" max="60" step="1" value="12">
+      </div>
+      <div>
+        <label>Extra jitter (ms p-p) <span id="jitterV" class="hl">4</span></label><br/>
+        <input type="range" id="jitter" min="0" max="30" step="1" value="4">
+      </div>
+      <div>
+        <label>Packet/frame (ms) <span id="frameV" class="hl">5</span></label><br/>
+        <input type="range" id="frame" min="2.5" max="20" step="2.5" value="5">
+      </div>
+      <div>
+        <label>Play buffer target (ms) <span id="bufV" class="hl">8</span></label><br/>
+        <input type="range" id="buf" min="2" max="40" step="1" value="8">
+      </div>
+      <div>
+        <label>Bit depth emu (bits) <span id="bitsV" class="hl">24</span></label><br/>
+        <input type="range" id="bits" min="8" max="24" step="1" value="24">
+      </div>
+      <div>
+        <label>Sample-rate emu (kHz) <span id="rateV" class="hl">48</span></label><br/>
+        <input type="range" id="rate" min="22" max="96" step="2" value="48">
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <button id="aggr" class="pri">Aggressive mode</button>
+    <button id="safe">Safe mode</button>
+  </div>
+
+  <div class="card">
+    <h3>Log</h3>
+    <pre id="log" class="mono small" style="white-space:pre-wrap;max-height:220px;overflow:auto;margin:0"></pre>
+  </div>
+</div>
+
+<script>
+// ---------- Tiny logger ----------
+const logEl = document.getElementById('log');
+const log = (...a)=>{ logEl.textContent += a.join(' ') + '\n'; logEl.scrollTop=logEl.scrollHeight; };
+
+// ---------- Audio + Worklet setup ----------
+let ac, mic, dryNode, procNode, mix, workletNode, running=false, active='proc';
+const status = s => document.getElementById('status').textContent = s;
+
+const workletCode = `
+class LatSimProcessor extends AudioWorkletProcessor{
+  static get parameterDescriptors(){
+    return [
+      {name:'baseDelayMs', defaultValue:12, minValue:0, maxValue:200, automationRate:'k-rate'},
+      {name:'jitterMs',    defaultValue:4,  minValue:0, maxValue:100, automationRate:'k-rate'},
+      {name:'frameMs',     defaultValue:5,  minValue:2.5, maxValue:40, automationRate:'k-rate'},
+      {name:'targetBufMs', defaultValue:8,  minValue:2, maxValue:80, automationRate:'k-rate'},
+      {name:'bits',        defaultValue:24, minValue:8, maxValue:24, automationRate:'k-rate'},
+      {name:'rateKhz',     defaultValue:48, minValue:22, maxValue:96, automationRate:'k-rate'}
+    ];
+  }
+  constructor(){
+    super();
+    this.sr = sampleRate; // host SR
+    this.q = new Float32Array(this.sr * 2); // ~2s buffer
+    this.head=0; this.tail=0; this.len=this.q.length;
+    this.rand=1; this.framesSinceJitter=0;
+    this.lastOccupy=0;
+    this.port.onmessage = e=>{};
+  }
+  _push(sample){
+    this.q[this.head] = sample;
+    this.head = (this.head+1)%this.len;
+    if(this.head===this.tail) this.tail = (this.tail+1)%this.len; // drop oldest
+  }
+  _avail(){ return (this.head - this.tail + this.len) % this.len; }
+  _pop(){
+    if(this.tail===this.head) return 0;
+    const s = this.q[this.tail];
+    this.tail = (this.tail+1)%this.len;
+    return s;
+  }
+  _downUp(sample, rateKhz){
+    // crude SR emu: if rate < host, randomly hold samples; if >, simple linear interp
+    const r = rateKhz*1000 / this.sr;
+    if (r>=1) return sample; // host <= emu SR -> do nothing (we don't actually upsample)
+    // hold with probability (1-r)
+    if (Math.random() < (1-r)) return this.prevSample ?? sample;
+    this.prevSample = sample;
+    return sample;
+  }
+  _bitcrush(sample, bits){
+    const steps = Math.pow(2,bits)-1;
+    return Math.round((sample*0.999)*steps)/steps;
+  }
+  process(inputs, outputs, params){
+    const input = inputs[0];
+    const output = outputs[0];
+    if(!input || input.length===0){ output[0].fill(0); return true; }
+    const src = input[0];
+    const dst = output[0];
+    const N = dst.length;
+
+    const baseDelay = params.baseDelayMs[0];
+    const jitterMs  = params.jitterMs[0];
+    const frameMs   = params.frameMs[0];
+    const targetBuf = params.targetBufMs[0];
+    const bits      = params.bits[0]|0;
+    const rateKhz   = params.rateKhz[0];
+
+    // how many samples correspond to time amounts
+    const ms2smp = ms => Math.max(0, Math.round(ms * this.sr / 1000));
+
+    // write incoming into queue with bit-depth + SR emu
+    for(let i=0;i<N;i++){
+      let s = src[i] || 0;
+      s = this._downUp(s, rateKhz);
+      s = this._bitcrush(s, bits);
+      this._push(s);
+    }
+
+    // keep queue occupancy near target = baseDelay + targetBuf (+ jitter wander)
+    const base = ms2smp(baseDelay + targetBuf);
+    if (this.framesSinceJitter > (frameMs * this.sr / 1000)) {
+      // wander +- jitter/2
+      const dj = (Math.random()-0.5) * ms2smp(jitterMs);
+      this.wander = dj|0;
+      this.framesSinceJitter = 0;
+    }
+    this.framesSinceJitter += N;
+
+    const target = base + (this.wander||0);
+    let avail = this._avail();
+
+    // if under target, output zeros (simulates buffer underflow waiting)
+    // if over target, read faster (we already read at N per render quantum)
+    for(let i=0;i<N;i++){
+      avail = this._avail();
+      if (avail <= target) {
+        dst[i] = 0; // waiting to fill buffer to target
+      } else {
+        dst[i] = this._pop();
+      }
+    }
+
+    // export occupancy % for UI
+    this.lastOccupy = Math.min(1, Math.max(0, avail / (this.sr*0.2))); // normalize to 200ms
+    this.port.postMessage({occ:this.lastOccupy});
+    return true;
+  }
+}
+registerProcessor('lat-sim', LatSimProcessor);
+`;
+
+function blobURL(txt){ return URL.createObjectURL(new Blob([txt], {type:'application/javascript'})); }
+
+async function enable(){
+  if (running) return;
+  status('starting…');
+  ac = new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
+  await ac.audioWorklet.addModule(blobURL(workletCode));
+
+  // capture mic (clean)
+  mic = await navigator.mediaDevices.getUserMedia({
+    audio:{
+      sampleRate:48000, channelCount:1,
+      echoCancellation:false, noiseSuppression:false, autoGainControl:false
+    }
+  });
+
+  const src = ac.createMediaStreamSource(mic);
+
+  // dry path
+  dryNode = ac.createGain(); dryNode.gain.value = 1;
+  // processed path
+  workletNode = new AudioWorkletNode(ac,'lat-sim',{numberOfInputs:1,numberOfOutputs:1,channelCount:1});
+  workletNode.port.onmessage = (e)=>{
+    const {occ} = e.data||{};
+    if (typeof occ === 'number') {
+      document.getElementById('bufBar').style.width = Math.round(occ*100)+'%';
+    }
+  };
+
+  // Mixer to destination
+  const dryGain = ac.createGain(); dryGain.gain.value = 0;
+  const wetGain = ac.createGain(); wetGain.gain.value = 1;
+  src.connect(dryNode).connect(dryGain).connect(ac.destination);
+  src.connect(workletNode).connect(wetGain).connect(ac.destination);
+
+  // UI toggle
+  document.getElementById('dry').onclick = ()=>{ dryGain.gain.value=1; wetGain.gain.value=0; active='dry'; status('dry'); };
+  document.getElementById('proc').onclick = ()=>{ dryGain.gain.value=0; wetGain.gain.value=1; active='proc'; status('simulated'); };
+
+  // sliders hook
+  bindParams();
+
+  running = true;
+  status('ready');
+  log('audio ready @', ac.sampleRate, 'Hz');
+}
+
+document.getElementById('enable').onclick = enable;
+
+// ---------- Presets & estimators ----------
+const devSel = document.getElementById('devicePreset');
+const devMs  = document.getElementById('devMs');
+devSel.onchange = ()=>{
+  const m = {
+    apollo:3, volt:5, sq:4, qu:6, cq:5,
+    dante:0.7, dvs:3, builtin:20
+  }[devSel.value] || 5;
+  devMs.value = m;
+  updateEstimate();
+};
+
+const netSel = document.getElementById('netPreset');
+const rttEl  = document.getElementById('rtt');
+
+function applyNetPreset(){
+  const p = netSel.value;
+  const set = (id,v)=>{ const el=document.getElementById(id); el.value=v; el.dispatchEvent(new Event('input')); };
+
+  if (p==='webrtc_tight'){      set('frame',2.5); set('buf',6);  set('baseDelay',8);  set('jitter',3); }
+  else if (p==='webrtc_safe'){  set('frame',5);   set('buf',12); set('baseDelay',12); set('jitter',6); }
+  else if (p==='webtransport'){ set('frame',2.5); set('buf',5);  set('baseDelay',6);  set('jitter',2); }
+  else if (p==='pcm_udp'){      set('frame',1* (1000/48)); /* ~64 samples */ set('buf',4); set('baseDelay',4); set('jitter',2); }
+  updateEstimate();
+}
+netSel.onchange = applyNetPreset;
+
+// auto-ping (very simple)
+document.getElementById('autoping').onclick = async ()=>{
+  try{
+    const t0 = performance.now();
+    await fetch('/diag/health?ts='+Date.now(), {cache:'no-store'});
+    const t1 = performance.now();
+    const rtt = Math.max(1, Math.round(t1-t0));
+    rttEl.value = rtt;
+    updateEstimate();
+    log('ping', rtt,'ms');
+  }catch(e){ log('ping failed'); }
+};
+
+// ---------- Parameter binding ----------
+function bindParams(){
+  const bind = (id, name, fmt=v=>v)=>{
+    const el = document.getElementById(id);
+    const lab = document.getElementById(id+'V');
+    const apply = ()=>{
+      const v = parseFloat(el.value);
+      lab.textContent = fmt(v);
+      if (workletNode) workletNode.parameters.get(name).setValueAtTime(v, ac.currentTime);
+      updateEstimate();
+    };
+    el.addEventListener('input', apply);
+    apply();
+  };
+  bind('baseDelay','baseDelayMs');
+  bind('jitter','jitterMs');
+  bind('frame','frameMs');
+  bind('buf','targetBufMs');
+  bind('bits','bits');
+  bind('rate','rateKhz');
+
+  document.getElementById('aggr').onclick = ()=>{
+    document.getElementById('frame').value=2.5;
+    document.getElementById('buf').value=5;
+    document.getElementById('baseDelay').value=6;
+    document.getElementById('jitter').value=2;
+    ['frame','buf','baseDelay','jitter'].forEach(id=>document.getElementById(id).dispatchEvent(new Event('input')));
+    log('Aggressive mode set');
+  };
+  document.getElementById('safe').onclick = ()=>{
+    document.getElementById('frame').value=10;
+    document.getElementById('buf').value=14;
+    document.getElementById('baseDelay').value=14;
+    document.getElementById('jitter').value=6;
+    ['frame','buf','baseDelay','jitter'].forEach(id=>document.getElementById(id).dispatchEvent(new Event('input')));
+    log('Safe mode set');
+  };
+
+  document.getElementById('devMs').addEventListener('input', updateEstimate);
+  document.getElementById('rtt').addEventListener('input', updateEstimate);
+  updateEstimate();
+}
+
+// estimator readout
+function updateEstimate(){
+  const dev = parseFloat(document.getElementById('devMs').value)||0;
+  const frame = parseFloat(document.getElementById('frame').value)||5;
+  const buf   = parseFloat(document.getElementById('buf').value)||8;
+  const base  = parseFloat(document.getElementById('baseDelay').value)||10;
+  const rtt   = parseFloat(document.getElementById('rtt').value)||0;
+
+  // codec+buffer budget (very rough): frame + max(2, buf) + extra 2ms processing
+  const codec = frame + Math.max(2, buf) + 2;
+
+  document.getElementById('estDev').textContent   = dev.toFixed(1);
+  document.getElementById('estCodec').textContent = codec.toFixed(1);
+  document.getElementById('estNet').textContent   = (rtt/2).toFixed(1);
+  const total = dev + codec + rtt/2;
+  const tEl = document.getElementById('estTotal');
+  tEl.textContent = total.toFixed(1);
+  tEl.className = (total<=25?'ok': total<=45?'warn':'bad');
+  document.getElementById('nowStr').textContent =
+    '≈ device '+dev.toFixed(1)+' + codec/buf '+codec.toFixed(1)+' + net '+(rtt/2).toFixed(1)+' = '+total.toFixed(1)+' ms one-way';
+}
+
+// defaults
+applyNetPreset();
+</script>
+</body>
+</html>
