@@ -1,405 +1,353 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <title>Claudio — low-latency path (diagnostics)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no"/>
+  <meta charset="utf-8" />
+  <title>Claudio — low-latency path</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root {
-      --fg:#e5e7eb; --muted:#9ca3af; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444;
-      --bg:#0b0b0d; --card:#141418; --line:#2a2a32; --blue:#3b82f6;
+    :root{
+      --bg:#0b0b0b;--panel:#151515;--text:#eaeaea;--muted:#9aa0a6;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--accent:#60a5fa;
     }
-    html,body{background:#000;height:100%}
-    body{margin:0;color:var(--fg);font:14px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Inter,Arial}
-    .wrap{max-width:980px;margin:28px auto 80px;padding:0 16px}
-    h1{font-size:32px;margin:0 0 16px;font-weight:700}
-    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0}
-    input,select,button{background:#11131a;border:1px solid var(--line);color:var(--fg);padding:10px 12px;border-radius:10px}
-    button{background:#0d203f;border-color:#164a8a;cursor:pointer}
-    button.primary{background:var(--blue);border-color:#1f54b6}
-    button:disabled{opacity:.55;cursor:not-allowed}
-    .meter{height:6px;background:#1a1a1f;border-radius:6px;overflow:hidden}
-    .bar{height:100%;width:0;background:linear-gradient(90deg,#22c55e,#f59e0b,#ef4444)}
-    .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0}
-    .kvs{display:flex;gap:14px;flex-wrap:wrap}
-    .kv{padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:#0e0e12}
-    .log{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:#0a0b10;border:1px solid var(--line);border-radius:8px;padding:10px;min-height:140px;white-space:pre-wrap}
-    .ok{color:var(--ok)} .warn{color:var(--warn)} .err{color:var(--err)} .muted{color:var(--muted)}
-    small{color:var(--muted)}
+    html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial}
+    .wrap{max-width:980px;margin:32px auto;padding:0 16px}
+    h1{font-weight:700;letter-spacing:.3px;margin:0 0 16px}
+    .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+    input[type=text],select,button{background:#1f1f1f;border:1px solid #2a2a2a;color:var(--text);border-radius:10px;padding:10px 12px}
+    select{min-width:260px}
+    button{cursor:pointer}
+    button.primary{background:rgba(96,165,250,.15);border-color:rgba(96,165,250,.35)}
+    button.ok{background:rgba(34,197,94,.15);border-color:rgba(34,197,94,.35)}
+    button.warn{background:rgba(245,158,11,.15);border-color:rgba(245,158,11,.35)}
+    .pill{padding:8px 10px;border-radius:10px;background:#1a1a1a;border:1px solid #2a2a2a;color:var(--muted)}
+    .meter{height:8px;background:#222;border-radius:6px;margin:8px 0;position:relative}
+    .bar{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#34d399,#f59e0b,#ef4444);border-radius:6px}
+    .tags{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+    .tag{background:#121212;border:1px solid #2a2a2a;padding:6px 10px;border-radius:999px;color:var(--muted)}
+    pre{background:var(--panel);border:1px solid #262626;border-radius:12px;padding:12px;white-space:pre-wrap;min-height:120px}
+    .right{margin-left:auto}
+    .chk{display:flex;align-items:center;gap:8px;background:#151515;border:1px solid #2a2a2a;border-radius:10px;padding:8px 10px;color:var(--muted)}
+    .small{font-size:12px;color:var(--muted)}
   </style>
+  <!--
+    Notes:
+    • “Aggressive mode” pushes Chrome to minimal playout buffer (~20 ms) and tight Opus framing (ptime/maxptime 10 ms).
+    • Talkback is a toggle now (click once to talk, click again to mute).
+    • MacBook Air M1 built-in hardware (wired output + built-in mic) typically adds ~15–25 ms end-to-end
+      (output DAC/driver ~5–12 ms + mic capture ~3–8 ms + OS buffering ~5–10 ms). Bluetooth adds 120–200 ms by itself.
+  -->
 </head>
 <body>
-<div class="wrap">
-  <h1>Claudio — low-latency path</h1>
+  <div class="wrap">
+    <h1>Claudio — low-latency path</h1>
 
-  <div class="row">
-    <input id="room" value="STUDIO1" style="width:160px" />
-    <input id="name" value="1" style="width:100px" />
-    <button id="btnJoin">Join</button>
-    <button id="btnPing">Ping</button>
-    <span id="rtt" class="kv">rtt: –</span>
-    <span id="path" class="kv">path: –</span>
-    <span id="transport" class="kv">transport: –</span>
-  </div>
-
-  <div class="row">
-    <select id="micSelect" style="min-width:300px"></select>
-    <select id="spkSelect" style="min-width:320px"></select>
-    <button id="refresh">Refresh devices</button>
-  </div>
-
-  <div class="row">
-    <button id="enable" class="primary">Enable sound</button>
-    <button id="ptt" disabled>hold to talk</button>
-    <span id="peers" class="kv">peers: 0</span>
-    <button id="runDiag" class="">Run diagnostics</button>
-  </div>
-
-  <div class="meter"><div id="lvl" class="bar"></div></div>
-
-  <div class="card">
-    <div class="kvs">
-      <div class="kv">socket: <span id="sockState" class="muted">connecting…</span></div>
-      <div class="kv">wizard: <span id="wizState" class="muted">idle</span></div>
-      <div class="kv">loopback: <span id="loopState" class="muted">idle</span></div>
+    <div class="row">
+      <select id="micSel"></select>
+      <select id="spkSel"></select>
+      <button id="refreshBtn" title="Refresh device list">Refresh devices</button>
+      <span class="pill" id="rtt">rtt: –</span>
+      <span class="pill" id="pathTag">path: –</span>
+      <span class="pill" id="transportTag">transport: –</span>
+      <label class="chk right" title="Use the most aggressive latency hints (can cause choppiness on weak networks)">
+        <input type="checkbox" id="aggrChk" /> Aggressive mode
+      </label>
     </div>
+
+    <div class="row">
+      <button id="enableBtn" class="primary">Enable sound</button>
+      <button id="talkBtn" class="warn" disabled>Talkback: OFF</button>
+      <button id="loopBtn">Start loopback</button>
+      <button id="pingBtn">Ping</button>
+    </div>
+
+    <div class="meter" aria-label="input level"><div class="bar" id="vu"></div></div>
+
+    <div class="tags">
+      <span class="tag" id="statusSock">socket: –</span>
+      <span class="tag" id="statusLoop">loopback: –</span>
+      <span class="tag" id="statusWizard">wizard: –</span>
+    </div>
+
+    <pre id="log"></pre>
   </div>
 
-  <div id="log" class="log">ready</div>
-  <small>Tip: use wired mic/output for true low latency. Bluetooth adds 120–200 ms by itself.</small>
-</div>
-<script>
-/* Insert clean low-latency audio hints into SDP.
-   - a=ptime / a=maxptime are media attributes (NOT fmtp)
-   - opus fmtp gets maxaveragebitrate & FEC flags
-*/
-function tuneSDP(sdp) {
-  // split into media sections
-  const parts = sdp.split('\r\nm=');
-  for (let i = 1; i < parts.length; i++) {
-    let sec = 'm=' + parts[i];
+  <audio id="sink" autoplay playsinline></audio>
 
-    if (sec.startsWith('m=audio')) {
-      // ensure a=ptime:10 and a=maxptime:10 exist (replace if present)
-      if (sec.match(/^a=ptime:/m)) {
-        sec = sec.replace(/^a=ptime:.*$/m, 'a=ptime:10');
-      } else {
-        sec = sec.replace(/(^a=rtpmap:.*\r\n)/m, '$1a=ptime:10\r\n');
-      }
-      if (sec.match(/^a=maxptime:/m)) {
-        sec = sec.replace(/^a=maxptime:.*$/m, 'a=maxptime:10');
-      } else {
-        sec = sec.replace(/(^a=ptime:10\r\n)/m, '$1a=maxptime:10\r\n');
-      }
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    // ====== globals ======
+    const logEl = document.getElementById('log');
+    const vuBar = document.getElementById('vu');
+    const sinkEl = document.getElementById('sink');
+    const micSel = document.getElementById('micSel');
+    const spkSel = document.getElementById('spkSel');
+    const enableBtn = document.getElementById('enableBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const loopBtn = document.getElementById('loopBtn');
+    const pingBtn = document.getElementById('pingBtn');
+    const talkBtn = document.getElementById('talkBtn');
+    const aggrChk = document.getElementById('aggrChk');
 
-      // fix/extend opus fmtp
-      // find payload for opus (usually 111)
-      const rtpmap = sec.match(/^a=rtpmap:(\d+)\s+opus\/48000\/?\d*/m);
-      if (rtpmap) {
-        const pt = rtpmap[1];
-        const fmtpRe = new RegExp(`^a=fmtp:${pt}\\s+(.+)$`, 'm');
-        const want = [
-          'stereo=0',              // mono for lowest latency
-          'useinbandfec=1',
-          'usedtx=0',
-          'maxaveragebitrate=128000'
-        ];
-        if (fmtpRe.test(sec)) {
-          sec = sec.replace(fmtpRe, (m, p1) => {
-            const have = p1.split(';').map(s=>s.trim()).filter(Boolean);
-            const merged = new Map();
-            for (const kv of have) { const [k,v] = kv.split('='); merged.set(k, v); }
-            for (const kv of want) { const [k,v] = kv.split('='); merged.set(k, v); }
-            const out = [...merged.entries()].map(([k,v])=>`${k}=${v}`).join(';');
-            return `a=fmtp:${pt} ${out}`;
-          });
-        } else {
-          sec = sec.replace(/^a=rtpmap:.*opus.*$/m, (line)=>`${line}\r\na=fmtp:${pt} ${want.join(';')}`);
+    const statusSock = document.getElementById('statusSock');
+    const statusLoop = document.getElementById('statusLoop');
+    const statusWizard = document.getElementById('statusWizard');
+    const rttTag = document.getElementById('rtt');
+    const pathTag = document.getElementById('pathTag');
+    const transportTag = document.getElementById('transportTag');
+
+    let socket = null;
+    let micStream = null;
+    let levelRAF = 0;
+    let levelAnalyser = null;
+    let pcSend = null, pcRecv = null;
+    let loopRunning = false;
+    let talkOn = false;
+    let lastCand = {type:'-', protocol:'-'};
+
+    // ====== utils ======
+    function log(msg, type='info'){
+      const color = type==='ok' ? '#22c55e' : type==='warn' ? '#f59e0b' : type==='err' ? '#ef4444' : '#9aa0a6';
+      logEl.innerHTML += `%c${msg}\n`;
+      console.log(msg);
+      // colorize the newly added line
+      const parts = logEl.innerHTML.split('%c');
+      if (parts.length>1){
+        logEl.innerHTML = '';
+        for (let i=0;i<parts.length;i++){
+          if (i===0) { logEl.append(parts[i]); continue; }
+          const span = document.createElement('span');
+          span.style.color = color;
+          span.textContent = parts[i];
+          logEl.appendChild(span);
         }
       }
+      logEl.scrollTop = logEl.scrollHeight;
     }
-    parts[i] = sec.replace(/^m=/, ''); // remove re-added m=
-  }
-  return parts.join('\r\nm=');
-}
-</script>
-<script src="/socket.io/socket.io.js"></script>
-<script>
-/* ====== globals ====== */
-const logEl = document.getElementById('log');
-const lvlEl = document.getElementById('lvl');
-const rttEl = document.getElementById('rtt');
-const pathEl = document.getElementById('path');
-const transportEl = document.getElementById('transport');
-const sockStateEl = document.getElementById('sockState');
-const wizStateEl = document.getElementById('wizState');
-const loopStateEl = document.getElementById('loopState');
-const peersEl = document.getElementById('peers');
 
-const micSel = document.getElementById('micSelect');
-const spkSel = document.getElementById('spkSelect');
+    async function listDevices() {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const mics = devs.filter(d=>d.kind==='audioinput');
+      const spks = devs.filter(d=>d.kind==='audiooutput');
 
-const btnEnable = document.getElementById('enable');
-const btnPTT = document.getElementById('ptt');
-const btnJoin = document.getElementById('btnJoin');
-const btnPing = document.getElementById('btnPing');
-const btnRefresh = document.getElementById('refresh');
-const btnDiag = document.getElementById('runDiag');
+      micSel.innerHTML = '';
+      mics.forEach(d=>{
+        const o = document.createElement('option');
+        o.value = d.deviceId; o.textContent = d.label || `Mic ${micSel.length+1}`;
+        micSel.appendChild(o);
+      });
 
-const roomEl = document.getElementById('room');
-const nameEl = document.getElementById('name');
+      spkSel.innerHTML = '';
+      spks.forEach(d=>{
+        const o = document.createElement('option');
+        o.value = d.deviceId; o.textContent = d.label || `Output ${spkSel.length+1}`;
+        spkSel.appendChild(o);
+      });
+    }
 
-let socket;
-let micStream=null, meterRAF=null, audioCtx=null, toneOsc=null;
-let pcSend=null, pcRecv=null, loopSink=null, loopStarted=false;
-let autoPingTimer=null;
-let lastCandidates = {type:'-', protocol:'-'};
+    function startLevelMeter(stream){
+      const ac = new (window.AudioContext||window.webkitAudioContext)({ latencyHint:'interactive' });
+      const src = ac.createMediaStreamSource(stream);
+      levelAnalyser = ac.createAnalyser();
+      levelAnalyser.fftSize = 512;
+      src.connect(levelAnalyser);
+      const data = new Uint8Array(levelAnalyser.fftSize);
 
-function log(s, cls) {
-  const line = (cls ? `<span class="${cls}">${s}</span>` : s);
-  logEl.innerHTML += `\n${line}`;
-  logEl.scrollTop = logEl.scrollHeight;
-}
+      const tick = () => {
+        levelAnalyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i=0;i<data.length;i++){
+          const v = (data[i]-128)/128;
+          sum += v*v;
+        }
+        const rms = Math.sqrt(sum/data.length);
+        vuBar.style.width = Math.min(100, Math.round(rms*300)) + '%';
+        levelRAF = requestAnimationFrame(tick);
+      };
+      cancelAnimationFrame(levelRAF);
+      levelRAF = requestAnimationFrame(tick);
+    }
 
-/* ====== socket ====== */
-function makeSocket() {
-  socket = io({ transports:['websocket'], path:'/socket.io' });
-  socket.on('connect', ()=>{ sockStateEl.textContent='connected'; log('socket connected'); });
-  socket.on('disconnect', r=>{ sockStateEl.textContent='disconnected'; log(`socket disconnected (${r})`, 'warn'); });
-  socket.on('users', list => {
-    peersEl.textContent = 'peers: ' + Math.max(0, (list?.length||0)-1);
-  });
-  socket.on('pong', ts => {
-    const ms = Date.now()-ts;
-    rttEl.textContent = `rtt: ${ms}ms`;
-  });
-}
-makeSocket();
+    // ====== SDP tuning (low-latency safe) ======
+    function tuneSDP(sdp, aggressive) {
+      const parts = sdp.split('\r\nm=');
+      for (let i = 1; i < parts.length; i++) {
+        let sec = 'm=' + parts[i];
+        if (sec.startsWith('m=audio')) {
+          // a=ptime & a=maxptime at media level
+          const wantP = aggressive ? 10 : 20;
+          if (sec.match(/^a=ptime:/m)) sec = sec.replace(/^a=ptime:.*$/m, `a=ptime:${wantP}`);
+          else sec = sec.replace(/(^a=rtpmap:.*\r\n)/m, `$1a=ptime:${wantP}\r\n`);
 
-/* ====== devices ====== */
-async function enumerate() {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  fillSelect(micSel, devices.filter(d=>d.kind==='audioinput'));
-  fillSelect(spkSel, devices.filter(d=>d.kind==='audiooutput'));
-}
-function fillSelect(sel, list) {
-  const cur = sel.value;
-  sel.innerHTML = '';
-  for (const d of list) {
-    const opt = document.createElement('option');
-    opt.value = d.deviceId;
-    opt.textContent = (d.label || (d.kind==='audioinput'?'Microphone':'Speaker')) + (d.deviceId==='default'?' (Default)':'');
-    sel.appendChild(opt);
-  }
-  if ([...sel.options].some(o=>o.value===cur)) sel.value = cur;
-}
+          if (sec.match(/^a=maxptime:/m)) sec = sec.replace(/^a=maxptime:.*$/m, `a=maxptime:${wantP}`);
+          else sec = sec.replace(/(^a=ptime:.*\r\n)/m, `$1a=maxptime:${wantP}\r\n`);
 
-/* ====== mic + level meter ====== */
-async function enableSound() {
-  btnEnable.disabled = true;
-  try {
-    const constraints = {
-      audio: {
-        deviceId: micSel.value && micSel.value!=='default' ? {exact: micSel.value} : undefined,
-        channelCount: 1,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-        sampleRate: 48000
+          // opus fmtp
+          const rtpmap = sec.match(/^a=rtpmap:(\d+)\s+opus\/48000\/?\d*/m);
+          if (rtpmap) {
+            const pt = rtpmap[1];
+            const fmtpRe = new RegExp(`^a=fmtp:${pt}\\s+(.+)$`, 'm');
+            const want = [
+              'stereo=0',
+              'useinbandfec=1',
+              'usedtx=0',
+              'maxaveragebitrate=128000'
+            ];
+            if (fmtpRe.test(sec)) {
+              sec = sec.replace(fmtpRe, (m, p1) => {
+                const have = p1.split(';').map(s=>s.trim()).filter(Boolean);
+                const merged = new Map();
+                for (const kv of have) { const [k,v] = kv.split('='); merged.set(k, v); }
+                for (const kv of want) { const [k,v] = kv.split('='); merged.set(k, v); }
+                const out = [...merged.entries()].map(([k,v])=>`${k}=${v}`).join(';');
+                return `a=fmtp:${pt} ${out}`;
+              });
+            } else {
+              sec = sec.replace(/^a=rtpmap:.*opus.*$/m, (line)=>`${line}\r\na=fmtp:${pt} ${want.join(';')}`);
+            }
+          }
+        }
+        parts[i] = sec.replace(/^m=/, '');
       }
-    };
-    micStream = await navigator.mediaDevices.getUserMedia(constraints);
-    log('mic ready','ok');
-
-    // audio context + meter
-    audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
-    const src = audioCtx.createMediaStreamSource(micStream);
-    const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 512;
-    src.connect(analyser);
-
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    function loop() {
-      analyser.getByteTimeDomainData(data);
-      // simple RMS
-      let sum=0; for (let i=0;i<data.length;i++){ const v=(data[i]-128)/128; sum+=v*v; }
-      const rms = Math.sqrt(sum/data.length);
-      lvlEl.style.width = Math.min(100, Math.round(rms*200)) + '%';
-      meterRAF = requestAnimationFrame(loop);
+      return parts.join('\r\nm=');
     }
-    meterRAF && cancelAnimationFrame(meterRAF);
-    loop();
 
-    // set sinkId on a hidden audio for test tone / loopback
-    loopSink = new Audio();
-    if (loopSink.setSinkId && spkSel.value) {
-      try { await loopSink.setSinkId(spkSel.value); } catch(e){ /* ignore */ }
+    // ====== Loopback (send->recv on this page) ======
+    async function startLoopback() {
+      if (!micStream) { log('mic not ready','warn'); return; }
+
+      // close previous
+      pcSend?.close(); pcRecv?.close();
+
+      const cfg = { iceServers:[{urls:'stun:stun.l.google.com:19302'}], iceCandidatePoolSize:2 };
+      pcSend = new RTCPeerConnection(cfg);
+      pcRecv = new RTCPeerConnection(cfg);
+
+      pcSend.onicecandidate = e => e.candidate && pcRecv.addIceCandidate(e.candidate).catch(()=>{});
+      pcRecv.onicecandidate = e => {
+        if (e.candidate) {
+          lastCand.type = (e.candidate.type||'-').toLowerCase();
+          lastCand.protocol = (e.candidate.protocol||'-').toLowerCase();
+          pathTag.textContent = 'path: ' + lastCand.type;
+          transportTag.textContent = 'transport: ' + lastCand.protocol;
+          pcSend.addIceCandidate(e.candidate).catch(()=>{});
+        }
+      };
+
+      pcRecv.ontrack = () => {
+        try {
+          const rx = pcRecv.getReceivers().find(r=>r.track && r.track.kind==='audio');
+          if (rx && 'playoutDelayHint' in rx) rx.playoutDelayHint = aggrChk.checked ? 0.02 : 0.06; // ~20ms or ~60ms
+        } catch {}
+        sinkEl.srcObject = pcRecv.getReceivers().map(r=>r.track).length ? pcRecv.getReceivers()[0].streams?.[0] : null;
+      };
+
+      // add mic track
+      micStream.getAudioTracks().forEach(t=> pcSend.addTrack(t, micStream));
+
+      // Offer/Answer with tuned SDP
+      let offer = await pcSend.createOffer({ offerToReceiveAudio:false });
+      offer = { type: offer.type, sdp: tuneSDP(offer.sdp, aggrChk.checked) };
+      await pcSend.setLocalDescription(offer);
+      await pcRecv.setRemoteDescription(offer);
+
+      let answer = await pcRecv.createAnswer();
+      answer = { type: answer.type, sdp: tuneSDP(answer.sdp, aggrChk.checked) };
+      await pcRecv.setLocalDescription(answer);
+      await pcSend.setRemoteDescription(answer);
+
+      loopRunning = true;
+      statusLoop.textContent = 'loopback: running';
+      loopBtn.textContent = 'Restart loopback';
+      log(`local loopback running (${aggrChk.checked ? 'aggressive' : 'normal'} mode)`, 'ok');
     }
-    btnPTT.disabled = false;
-    wizStateEl.textContent='armed';
-    // kick diagnostics automatically after permission
-    runWizard().catch(()=>{});
-  } catch (e) {
-    log('enable error: '+ e.message, 'err');
-    btnEnable.disabled = false;
-  }
-}
 
-/* ====== PTT (push-to-talk in-room, when a peer joins) ====== */
-btnPTT.addEventListener('mousedown', ()=>socket.emit('talk', {room: roomEl.value, speaking:true}));
-btnPTT.addEventListener('mouseup',   ()=>socket.emit('talk', {room: roomEl.value, speaking:false}));
-btnPTT.addEventListener('touchstart', e=>{ e.preventDefault(); socket.emit('talk',{room:roomEl.value, speaking:true});},{passive:false});
-btnPTT.addEventListener('touchend',   e=>{ e.preventDefault(); socket.emit('talk',{room:roomEl.value, speaking:false});},{passive:false});
+    function toggleTalk() {
+      if (!micStream) return;
+      talkOn = !talkOn;
+      micStream.getAudioTracks().forEach(t => t.enabled = talkOn);
+      talkBtn.textContent = 'Talkback: ' + (talkOn ? 'ON' : 'OFF');
+      talkBtn.className = talkOn ? 'ok' : 'warn';
+      log('talkback ' + (talkOn ? 'ON' : 'OFF'));
+    }
 
-/* ====== auto ping ====== */
-function startAutoPing() {
-  autoPingTimer && clearInterval(autoPingTimer);
-  autoPingTimer = setInterval(()=> {
-    if (socket && socket.connected) socket.emit('ping', Date.now());
-  }, 3000);
-}
-
-/* ====== join room ====== */
-async function joinRoom() {
-  socket.emit('join-room', { roomId: roomEl.value.trim(), username: nameEl.value.trim() || 'musician' });
-  log(`joined ${roomEl.value}`, 'ok');
-}
-
-  
-/* ====== local WebRTC loopback (no server peer needed) ====== */
-async function startLoopback() {
-  loopStateEl.textContent='starting…';
-  const ice = { iceServers: [{urls:'stun:stun.l.google.com:19302'}] };
-  pcSend = new RTCPeerConnection(ice);
-  pcRecv = new RTCPeerConnection(ice);
-
-  pcSend.onicecandidate = e => e.candidate && pcRecv.addIceCandidate(e.candidate).catch(()=>{});
-  pcRecv.onicecandidate = e => e.candidate && pcSend.addIceCandidate(e.candidate).catch(()=>{});
-
-  // capture path/transport info (from first successful candidate pair)
-  pcRecv.addEventListener('iceconnectionstatechange', ()=>{
-    const st = pcRecv.iceConnectionState;
-    if (st==='connected' || st==='completed') {
-      const trans = pcRecv.getTransceivers()[0];
+    // ====== Socket ping (server RTT) ======
+    function initSocket() {
       try {
-        const s = pcRecv.sctp ? 'udp' : 'udp';
-        transportEl.textContent = 'transport: ' + s;
+        socket = io({ transports:['websocket'], timeout:4000, reconnection:true });
+        socket.on('connect', ()=>{
+          statusSock.textContent = 'socket: connected';
+        });
+        socket.on('disconnect', ()=>{
+          statusSock.textContent = 'socket: disconnected';
+        });
+      } catch (e) {
+        log('socket failed: ' + e.message, 'warn');
+      }
+    }
+    function doPing() {
+      if (!socket || socket.disconnected) { rttTag.textContent = 'rtt: –'; return; }
+      const ts = Date.now();
+      socket.emit('ping', ts);
+      const timer = setTimeout(()=> rttTag.textContent='rtt: timeout', 3000);
+      socket.once('pong', ()=>{
+        clearTimeout(timer);
+        rttTag.textContent = 'rtt: ' + (Date.now()-ts) + 'ms';
+      });
+    }
+
+    // ====== Device init ======
+    async function enableAudio() {
+      try {
+        // request with browser-friendly constraints
+        const devId = micSel.value || 'default';
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: devId === 'default' ? undefined : { exact: devId },
+            channelCount: 1,
+            sampleRate: { ideal: 48000 },
+            sampleSize: { ideal: 16 },
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          }
+        });
+        sinkEl.setSinkId && spkSel.value && sinkEl.setSinkId(spkSel.value).catch(()=>{});
+        startLevelMeter(micStream);
+        talkBtn.disabled = false;
+        // default talk state OFF (tracks disabled) until toggled
+        micStream.getAudioTracks().forEach(t=> t.enabled = false);
+        log('mic ready','ok');
+      } catch (e) {
+        log('getUserMedia error: ' + e.message, 'err');
+      }
+    }
+
+    async function refreshAll() {
+      await listDevices();
+      await enableAudio();
+    }
+
+    // ====== UI wiring ======
+    enableBtn.onclick = enableAudio;
+    refreshBtn.onclick = refreshAll;
+    loopBtn.onclick = startLoopback;
+    talkBtn.onclick = toggleTalk;
+    pingBtn.onclick = doPing;
+    aggrChk.onchange = () => { if (loopRunning) startLoopback(); };
+
+    // ====== boot ======
+    (async () => {
+      statusWizard.textContent = 'wizard: ready';
+      await listDevices();
+      initSocket();
+      // try to prefill labels (requires permission)
+      try {
+        await navigator.mediaDevices.getUserMedia({audio:true});
+        await listDevices();
       } catch {}
-    }
-  });
-  pcRecv.onicecandidate = e => {
-    if (e.candidate) {
-      lastCandidates.protocol = (e.candidate.protocol||'-').toLowerCase();
-      transportEl.textContent = 'transport: ' + lastCandidates.protocol;
-    }
-  };
-
-  // play received audio to selected sink
-  pcRecv.ontrack = ev => {
-    const el = loopSink;
-    el.srcObject = ev.streams[0];
-    el.play().catch(()=>{});
-  };
-
-  // add local mic
-  if (!micStream) throw new Error('mic not ready');
-  micStream.getAudioTracks().forEach(t=> pcSend.addTrack(t, micStream));
-
-  // create offers/answers locally (no SDP munging)
-  const offer = await pcSend.createOffer({ offerToReceiveAudio:false });
-  await pcSend.setLocalDescription(offer);
-  await pcRecv.setRemoteDescription(offer);
-  const answer = await pcRecv.createAnswer();
-  await pcRecv.setLocalDescription(answer);
-  await pcSend.setRemoteDescription(answer);
-
-  // detect selected candidate type
-  pcRecv.addEventListener('icecandidate', e=>{
-    if (e.candidate) {
-      const type = (e.candidate.type||'').toLowerCase();
-      if (type) { lastCandidates.type = type; pathEl.textContent = 'path: ' + type; }
-    }
-  });
-
-  loopStarted = true;
-  loopStateEl.textContent='running';
-  log('local loopback running','ok');
-}
-async function stopLoopback() {
-  [pcSend, pcRecv].forEach(pc=>{
-    if (pc) {
-      pc.getSenders().forEach(s=>{ try{s.track && s.track.stop();}catch{} });
-      try{ pc.close(); }catch{}
-    }
-  });
-  pcSend = pcRecv = null;
-  loopStateEl.textContent='idle';
-}
-
-/* ====== tone to output (speaker test) ====== */
-function playTone(sec=1) {
-  if (!audioCtx) return;
-  toneOsc && toneOsc.stop();
-  toneOsc = audioCtx.createOscillator();
-  toneOsc.frequency.value = 440;
-  const g = audioCtx.createGain(); g.gain.value=0.15;
-  toneOsc.connect(g).connect(audioCtx.destination);
-  toneOsc.start();
-  setTimeout(()=>{ try{toneOsc.stop();}catch{} }, sec*1000);
-}
-
-/* ====== wizard ====== */
-async function runWizard() {
-  wizStateEl.textContent='running…';
-  log('diagnostics: start','muted');
-
-  // 1) mic test: show level for 2s
-  await sleep(2000);
-  log('mic test: levels moving? → OK if yes','muted');
-
-  // 2) speaker test: play tone to selected device
-  if (loopSink && loopSink.setSinkId && spkSel.value) {
-    try { await loopSink.setSinkId(spkSel.value); } catch(e){ log('setSinkId blocked (non-HTTPS or not allowed). Using default output.','warn'); }
-  }
-  playTone(1);
-  log('speaker test: 440Hz beep should be audible','muted');
-
-  // 3) network test: auto ping + ICE gather quick check (via local loopback)
-  startAutoPing();
-  try {
-    await startLoopback();
-    log('network test: ICE connected (look at path & transport chips)','ok');
-  } catch (e) {
-    log('network test failed: '+e.message,'err');
-  }
-
-  wizStateEl.textContent='done';
-}
-
-/* ====== helpers ====== */
-const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
-
-/* ====== wire up ====== */
-btnEnable.addEventListener('click', enableSound);
-btnRefresh.addEventListener('click', enumerate);
-btnJoin.addEventListener('click', joinRoom);
-btnPing.addEventListener('click', ()=> socket.emit('ping', Date.now()));
-btnDiag.addEventListener('click', ()=> runWizard().catch(e=>log(e.message,'err')));
-
-spkSel.addEventListener('change', async ()=>{
-  if (loopSink && loopSink.setSinkId) {
-    try { await loopSink.setSinkId(spkSel.value); } catch(e){ log('cannot switch output: '+e.message,'warn'); }
-  }
-});
-
-window.addEventListener('beforeunload', ()=>{ stopLoopback(); socket && socket.close(); });
-
-(async function boot() {
-  await enumerate();
-  // populate selects defaults if empty labels (before permission)
-  if (!micSel.value) micSel.value = 'default';
-  if (!spkSel.value) spkSel.value = 'default';
-})();
-</script>
+      log('ready');
+      // auto ping every 5s
+      setInterval(doPing, 5000);
+    })();
+  </script>
 </body>
 </html>
