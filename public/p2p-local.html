@@ -6,8 +6,8 @@
 <title>Claudio — P2P local (host-only)</title>
 <style>
   :root{--bg:#0b0c0f;--panel:#15161a;--ink:#e7e7ea;--mut:#9aa0a6;--pri:#60a5fa;--ok:#22c55e;--bad:#ef4444}
-  html,body{background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Inter,Roboto; margin:0}
-  .wrap{max-width:960px;margin:26px auto;padding:0 16px}
+  html,body{background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Inter,Roboto;margin:0}
+  .wrap{max-width:980px;margin:26px auto;padding:0 16px}
   h1{margin:0 0 12px;font-size:clamp(22px,2.6vw,28px)}
   .row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
   input[type=text],select,button{background:#101115;color:var(--ink);border:1px solid #2a2d36;border-radius:9px;padding:8px 10px}
@@ -32,6 +32,7 @@
     <button id="leave">Leave</button>
     <button id="aggr" class="pri">Aggressive</button>
     <button id="safe">Safe</button>
+    <button id="reset">Reset</button>
     <span id="state" class="pill">idle</span>
     <span class="pill">role: <b id="role">–</b></span>
     <span class="pill">rtt: <b id="rtt">–</b></span>
@@ -50,7 +51,7 @@
       <button id="talk">Talkback: OFF</button>
       <span class="pill mut">mic level:</span><meter id="lvl" min="0" max="1" low="0.1" high="0.3" optimum="0.5" value="0"></meter>
     </div>
-    <div class="mut small">Tips: use <b>wired</b> headphones; macOS Audio MIDI → 48 kHz; close virtual audio apps. Keep both tabs in the <b>same Chrome profile</b> (not one incognito).</div>
+    <div class="mut small">Tips: use <b>wired</b> headphones; macOS Audio MIDI → 48 kHz; close virtual audio apps. Keep both tabs in the <b>same Chrome profile</b> (not incognito).</div>
   </div>
 
   <div class="card">
@@ -64,73 +65,76 @@
 </div>
 
 <script>
+/* ---------- logging ---------- */
 const logEl = document.getElementById('diag');
-const log = (...a)=>{ logEl.textContent += a.join(' ') + '\n'; logEl.scrollTop = logEl.scrollHeight; };
-const set = (id,v)=>document.getElementById(id).textContent = v;
+const log = (...a)=>{ logEl.textContent += a.join(' ') + '\\n'; logEl.scrollTop = logEl.scrollHeight; };
+const setTxt = (id,v)=>document.getElementById(id).textContent = v;
+const setState = (s)=> setTxt('state', s);
 
-let ac, meterNode, micStream, pc, dc, rx = document.getElementById('rx');
-let talking = false, outSink = null, room = () => (document.getElementById('room').value || 'STUDIO1').toUpperCase();
-let myId = Math.random().toString(36).slice(2);
-let role = 'unknown', peerSeen = {};
-set('role', role);
+/* ---------- globals ---------- */
+let ac, lvlNode, micStream, pc, dc, rx = document.getElementById('rx');
+let talking = false, outSink = null;
+let queuedCandidates = [];
+let offered = false, answered = false;
+let remoteId = null;
+let role = 'unknown'; setTxt('role', role);
+const myId = Math.random().toString(36).slice(2);
+const room = () => (document.getElementById('room').value || 'STUDIO1').toUpperCase();
 
-// ---------- robust room bus ----------
-function mkBus(){
-  const name = `claudio-local-p2p:${room()}`;
-  let bc = ('BroadcastChannel' in self) ? new BroadcastChannel(name) : null;
-  log('bus on', name, bc? '(BroadcastChannel)': '(storage-fallback)');
+/* ---------- Broadcast bus with storage fallback ---------- */
+function makeBus(){
+  const channelName = `claudio-local-p2p:${room()}`;
+  let bc = ('BroadcastChannel' in self) ? new BroadcastChannel(channelName) : null;
+  log('bus on', channelName, bc? '(BroadcastChannel)': '(storage-fallback)');
   const send = (msg) => {
     const payload = {...msg, room: room(), id: myId, ts: Date.now()};
     if (bc) bc.postMessage(payload);
-    localStorage.setItem(name, JSON.stringify(payload));
-    localStorage.removeItem(name);
+    // storage-fallback (also helps same-profile tabs)
+    localStorage.setItem(channelName, JSON.stringify(payload));
+    localStorage.removeItem(channelName);
   };
   const on = (cb) => {
     if (bc) bc.onmessage = (ev)=> cb(ev.data||{});
     window.addEventListener('storage', (ev)=>{
-      if (ev.key !== name || !ev.newValue) return;
+      if (ev.key !== channelName || !ev.newValue) return;
       try { cb(JSON.parse(ev.newValue)); } catch {}
     });
   };
-  return {send, on};
+  return {send, on, name: channelName};
 }
-let bus = mkBus();
+let bus = makeBus();
 
-// ---------- utils (regex-free SDP munging) ----------
+/* ---------- SDP helpers (regex-free) ---------- */
 function sdpTightenOpus(sdp){
-  const lines = sdp.split('\r\n');
+  const lines = sdp.split('\\r\\n');
   let opusPt = null;
 
-  // find opus payload type
   for (const l of lines){
-    const m = l.match(/^a=rtpmap:(\d+)\s+opus\/48000/i);
+    const m = l.match(/^a=rtpmap:(\\d+)\\s+opus\\/48000/i);
     if (m){ opusPt = m[1]; break; }
   }
   if (!opusPt) return sdp;
 
-  // keep only opus in m=audio line
   for (let i=0;i<lines.length;i++){
     if (lines[i].startsWith('m=audio ')){
-      const m = lines[i].match(/^(m=audio \d+ [A-Z\/]+ )(.+)$/i);
+      const m = lines[i].match(/^(m=audio \\d+ [A-Z\\/]+ )(.+)$/i);
       if (m) lines[i] = m[1] + opusPt;
     }
   }
 
-  // tighten fmtp for opus
   const fmtp = `a=fmtp:${opusPt} stereo=0;sprop-stereo=0;ptime=3;minptime=3;maxptime=10;maxaveragebitrate=128000;useinbandfec=1;usedtx=0;cbr=0`;
   const idx = lines.findIndex(l=> l.startsWith('a=fmtp:'+opusPt));
   if (idx>=0) lines[idx]=fmtp; else lines.push(fmtp);
 
-  return lines.join('\r\n');
+  return lines.join('\\r\\n');
 }
 function keepHostCandidates(sdp){
-  return sdp.split('\r\n')
+  return sdp.split('\\r\\n')
     .filter(l => !l.startsWith('a=candidate:') || l.includes(' typ host '))
-    .join('\r\n');
+    .join('\\r\\n');
 }
-function setState(s){ document.getElementById('state').textContent = s; }
 
-// ---------- devices & audio ----------
+/* ---------- devices & audio ---------- */
 async function refreshDevs(){
   const devs = await navigator.mediaDevices.enumerateDevices();
   const micSel = document.getElementById('micSel');
@@ -147,6 +151,31 @@ async function setOutput(){
     catch(e){ log('setSinkId failed', e.toString()); }
   }
 }
+
+/* tiny AudioWorklet (inlined) for level meter */
+async function ensureLevelWorklet(){
+  if (!ac) return;
+  if (ac.audioWorklet && !ensureLevelWorklet.loaded){
+    const code = `
+      class LevelMeterProcessor extends AudioWorkletProcessor{
+        process(inputs){ 
+          const ch = inputs[0][0] || new Float32Array(128);
+          let sum=0; for(let i=0;i<ch.length;i++){ sum += ch[i]*ch[i]; }
+          const rms = Math.sqrt(sum/ch.length);
+          this.port.postMessage(rms);
+          return true;
+        }
+      }
+      registerProcessor('level-meter', LevelMeterProcessor);
+    `;
+    const blob = new Blob([code], {type:'application/javascript'});
+    const url = URL.createObjectURL(blob);
+    await ac.audioWorklet.addModule(url);
+    ensureLevelWorklet.loaded = true;
+  }
+}
+
+/* get mic and wire level meter */
 async function getMic(){
   const micId = document.getElementById('micSel').value || undefined;
   if (micStream) micStream.getTracks().forEach(t=>t.stop());
@@ -157,25 +186,25 @@ async function getMic(){
       echoCancellation:false, noiseSuppression:false, autoGainControl:false
     }
   });
-  if (!ac) ac = new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
+  await ensureLevelWorklet();
   const src = ac.createMediaStreamSource(micStream);
-  meterNode = ac.createScriptProcessor(512,1,1);
-  meterNode.onaudioprocess = (e)=>{
-    const d=e.inputBuffer.getChannelData(0); let sum=0; for(let i=0;i<d.length;i++){ sum += d[i]*d[i]; }
-    document.getElementById('lvl').value = Math.sqrt(sum/d.length);
-  };
-  src.connect(meterNode).connect(ac.destination);
+  if (ac.audioWorklet){
+    const node = new AudioWorkletNode(ac, 'level-meter');
+    node.port.onmessage = (e)=> { document.getElementById('lvl').value = Math.min(1, e.data*3); };
+    src.connect(node).connect(ac.destination);
+    lvlNode = node;
+  }
   log('mic ready');
 }
 
-// ---------- WebRTC ----------
+/* ---------- WebRTC ---------- */
 function bindDC(dch){
   dc = dch;
   dch.onopen = ()=>{ log('datachannel open'); pingLoop(); };
   dch.onmessage = (e)=>{
-    const m = JSON.parse(e.data||'{}');
+    let m={}; try{ m=JSON.parse(e.data); }catch{}
     if (m.t==='ping'){ dch.send(JSON.stringify({t:'pong', ts:m.ts})); }
-    if (m.t==='pong'){ set('rtt', Math.round(performance.now()-m.ts)+' ms'); }
+    if (m.t==='pong'){ setTxt('rtt', Math.round(performance.now()-m.ts)+' ms'); }
   };
 }
 function pingLoop(){
@@ -195,90 +224,116 @@ async function makePC(){
     try{ await rx.play(); }catch{}
     log('remote track');
   };
-  const track = micStream.getAudioTracks()[0];
-  track.enabled = talking;
-  pc.addTrack(track, micStream);
+  const t = micStream.getAudioTracks()[0];
+  t.enabled = talking; // talkback gate
+  pc.addTrack(t, micStream);
 }
-
-// ---------- Signaling (glare-free) ----------
-let helloTimer = null, heartbeat = null, offered = false, answered = false;
-
-function startPresence(){
-  peerSeen = {};
-  bus.send({t:'hello'});
-  helloTimer = setInterval(()=> bus.send({t:'hello'}), 1000);
-  heartbeat = setInterval(()=> bus.send({t:'hb'}), 1500);
-}
-function stopPresence(){ clearInterval(helloTimer); clearInterval(heartbeat); }
 function decideRole(otherId){ return (myId < otherId) ? 'caller' : 'callee'; }
+
+/* ---------- signaling (glare-free) ---------- */
+let helloTimer=null, hbTimer=null, peersSeen={};
+function startPresence(){
+  peersSeen = {};
+  bus.send({t:'hello'});
+  helloTimer = setInterval(()=> bus.send({t:'hello'}), 800);
+  hbTimer = setInterval(()=> bus.send({t:'hb'}), 1500);
+}
+function stopPresence(){ clearInterval(helloTimer); clearInterval(hbTimer); }
+
+async function maybeOffer(){
+  if (!pc || role!=='caller' || offered || answered) return;
+  if (pc.signalingState !== 'stable') return;
+  const off = await pc.createOffer({offerToReceiveAudio:true});
+  let sdp = sdpTightenOpus(off.sdp); sdp = keepHostCandidates(sdp);
+  await pc.setLocalDescription({type:'offer', sdp});
+  offered = true;
+  bus.send({t:'offer', sdp});
+  log('offer sent');
+}
 
 bus.on(async (m)=>{
   if (m.room !== room() || m.id===myId) return;
 
   if (m.t==='hello' || m.t==='hb'){
-    peerSeen[m.id] = Date.now();
-    const alive = Object.values(peerSeen).filter(ts=> Date.now()-ts < 4000).length;
-    set('peers', String(alive));
-  }
-  if (m.t==='hello' && !pc){
-    role = decideRole(m.id); set('role', role);
+    peersSeen[m.id] = Date.now();
+    const alive = Object.values(peersSeen).filter(ts=> Date.now()-ts < 3500).length;
+    setTxt('peers', String(alive));
+    if (!remoteId){ remoteId=m.id; role = decideRole(remoteId); setTxt('role', role); }
+    if (pc && role==='caller') setTimeout(maybeOffer, 200);
   }
 
   if (m.t==='offer'){
     offered = true;
+    if (!pc) await makePC();
     await pc.setRemoteDescription(new RTCSessionDescription({type:'offer', sdp:m.sdp}));
+    // apply queued candidates received before remote desc
+    while (queuedCandidates.length){
+      try{ await pc.addIceCandidate(queuedCandidates.shift()); }catch{}
+    }
     const ans = await pc.createAnswer();
     let sdp = sdpTightenOpus(ans.sdp); sdp = keepHostCandidates(sdp);
     await pc.setLocalDescription({type:'answer', sdp});
     bus.send({t:'answer', sdp});
+    log('answer sent');
   }
   if (m.t==='answer'){
     answered = true;
     await pc.setRemoteDescription(new RTCSessionDescription({type:'answer', sdp:m.sdp}));
+    // apply queued candidates after RD set
+    while (queuedCandidates.length){
+      try{ await pc.addIceCandidate(queuedCandidates.shift()); }catch{}
+    }
+    log('answer applied');
   }
   if (m.t==='cand'){
-    try{ await pc.addIceCandidate(m.cand); }catch(e){}
+    if (pc && pc.remoteDescription) {
+      try{ await pc.addIceCandidate(m.cand); }catch(e){}
+    } else {
+      queuedCandidates.push(m.cand);
+    }
   }
 });
 
-// ---------- actions ----------
+/* ---------- actions ---------- */
 async function join(){
   if (!micStream) await getMic();
-  await makePC();
+  if (!pc) await makePC();
 
   if (role==='caller'){ bindDC(pc.createDataChannel('ping')); }
   else { pc.ondatachannel = ev => bindDC(ev.channel); }
 
-  const maybeOffer = async ()=>{
-    if (role!=='caller' || offered || answered) return;
-    const off = await pc.createOffer({offerToReceiveAudio:true});
-    let sdp = sdpTightenOpus(off.sdp); sdp = keepHostCandidates(sdp);
-    await pc.setLocalDescription({type:'offer', sdp});
-    bus.send({t:'offer', sdp});
-  };
-
   setState('connecting');
   startPresence();
-  setTimeout(maybeOffer, 600);
-  setTimeout(maybeOffer, 1200);
+  // belt & suspenders: try offers a couple of times after presence begins
+  setTimeout(maybeOffer, 400);
+  setTimeout(maybeOffer, 1000);
+  setTimeout(maybeOffer, 1800);
 }
 async function leave(){
   stopPresence();
+  offered=false; answered=false; remoteId=null; queuedCandidates=[];
   try{ bus.send({t:'bye'}); }catch{}
   if (pc){ pc.getSenders().forEach(s=>s.track && s.track.stop()); try{pc.close();}catch{} pc=null; }
-  rx.srcObject = null; set('peers','0'); set('rtt','–'); setState('idle'); log('left');
+  rx.srcObject = null; setTxt('peers','0'); setTxt('rtt','–'); setState('idle'); setTxt('role','unknown');
+  log('left');
+}
+function hardReset(){
+  leave();
+  // rebuild bus (room might have changed)
+  bus = makeBus();
 }
 
-// ---------- UI ----------
 document.getElementById('enable').onclick = async ()=>{
   try{
     ac = new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
     await refreshDevs(); await getMic(); await setOutput();
-    setState('ready'); log('audio ready', ac.baseLatency? `baseLatency=${(ac.baseLatency*1000).toFixed(2)}ms` : '');
+    setState('ready');
+    log('audio ready', ac.baseLatency? `baseLatency=${(ac.baseLatency*1000).toFixed(2)}ms` : '');
   }catch(e){ log('Enable failed:', e.name, e.message); }
 };
 document.getElementById('join').onclick = join;
 document.getElementById('leave').onclick = leave;
+document.getElementById('reset').onclick = hardReset;
 document.getElementById('refresh').onclick = async ()=>{ await refreshDevs(); await setOutput(); };
 document.getElementById('outSel').onchange = setOutput;
 document.getElementById('talk').onclick = ()=>{
@@ -304,11 +359,12 @@ document.getElementById('safe').onclick = ()=>{
   });
   log('safe set (ptime≈10ms)');
 };
-document.getElementById('room').addEventListener('change', ()=>{ bus = mkBus(); });
+document.getElementById('room').addEventListener('change', ()=>{ bus = makeBus(); });
 
 rx.addEventListener('play', ()=> log('audio element playing'));
 rx.addEventListener('error', (e)=> log('audio error', e.message||''));
 
+/* permissions log */
 (async ()=>{
   if (navigator.permissions){
     try{
