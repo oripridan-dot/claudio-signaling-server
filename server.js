@@ -20,9 +20,6 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("tiny"));
 app.use(express.static("public"));
-app.get(["/p2p-lite", "/p2p-lite.html"], (_req, res) =>
-  res.sendFile(path.join(PUBLIC_DIR, "p2p-lite.html"))
-);
 
 const rooms = new Map(); // roomId -> Set(socketId)
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -114,6 +111,9 @@ io.on("connection", (socket) => {
 app.get("/diag/health", (_req, res) => {
   res.json({ ok: true, rooms: [...rooms.entries()].map(([k, v]) => [k, v.size]) });
 });
+app.get(["/p2p-lite", "/p2p-lite.html"], (_req, res) =>
+  res.sendFile(path.join(PUBLIC_DIR, "p2p-lite.html"))
+);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => log("listening", PORT));
