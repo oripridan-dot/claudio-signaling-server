@@ -210,6 +210,61 @@ async function joinRoom() {
   socket.emit('join-room', { roomId: roomEl.value.trim(), username: nameEl.value.trim() || 'musician' });
   log(`joined ${roomEl.value}`, 'ok');
 }
+<script>
+/* Insert clean low-latency audio hints into SDP.
+   - a=ptime / a=maxptime are media attributes (NOT fmtp)
+   - opus fmtp gets maxaveragebitrate & FEC flags
+*/
+function tuneSDP(sdp) {
+  // split into media sections
+  const parts = sdp.split('\r\nm=');
+  for (let i = 1; i < parts.length; i++) {
+    let sec = 'm=' + parts[i];
+
+    if (sec.startsWith('m=audio')) {
+      // ensure a=ptime:10 and a=maxptime:10 exist (replace if present)
+      if (sec.match(/^a=ptime:/m)) {
+        sec = sec.replace(/^a=ptime:.*$/m, 'a=ptime:10');
+      } else {
+        sec = sec.replace(/(^a=rtpmap:.*\r\n)/m, '$1a=ptime:10\r\n');
+      }
+      if (sec.match(/^a=maxptime:/m)) {
+        sec = sec.replace(/^a=maxptime:.*$/m, 'a=maxptime:10');
+      } else {
+        sec = sec.replace(/(^a=ptime:10\r\n)/m, '$1a=maxptime:10\r\n');
+      }
+
+      // fix/extend opus fmtp
+      // find payload for opus (usually 111)
+      const rtpmap = sec.match(/^a=rtpmap:(\d+)\s+opus\/48000\/?\d*/m);
+      if (rtpmap) {
+        const pt = rtpmap[1];
+        const fmtpRe = new RegExp(`^a=fmtp:${pt}\\s+(.+)$`, 'm');
+        const want = [
+          'stereo=0',              // mono for lowest latency
+          'useinbandfec=1',
+          'usedtx=0',
+          'maxaveragebitrate=128000'
+        ];
+        if (fmtpRe.test(sec)) {
+          sec = sec.replace(fmtpRe, (m, p1) => {
+            const have = p1.split(';').map(s=>s.trim()).filter(Boolean);
+            const merged = new Map();
+            for (const kv of have) { const [k,v] = kv.split('='); merged.set(k, v); }
+            for (const kv of want) { const [k,v] = kv.split('='); merged.set(k, v); }
+            const out = [...merged.entries()].map(([k,v])=>`${k}=${v}`).join(';');
+            return `a=fmtp:${pt} ${out}`;
+          });
+        } else {
+          sec = sec.replace(/^a=rtpmap:.*opus.*$/m, (line)=>`${line}\r\na=fmtp:${pt} ${want.join(';')}`);
+        }
+      }
+    }
+    parts[i] = sec.replace(/^m=/, ''); // remove re-added m=
+  }
+  return parts.join('\r\nm=');
+}
+</script>
 
 /* ====== local WebRTC loopback (no server peer needed) ====== */
 async function startLoopback() {
