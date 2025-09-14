@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claudio — P2P local (host only)</title>
+<style>
+  :root{--bg:#0b0b0c;--panel:#15161a;--ink:#e7e7ea;--mut:#9aa0a6;--pri:#60a5fa;--ok:#22c55e;--bad:#ef4444}
+  html,body{background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Inter,Roboto; margin:0}
+  .wrap{max-width:900px;margin:26px auto;padding:0 16px}
+  h1{margin:0 0 10px;font-size:clamp(22px,2.6vw,28px)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+  button,select{background:#101115;color:var(--ink);border:1px solid #2a2d36;border-radius:9px;padding:8px 10px;cursor:pointer}
+  button.pri{background:rgba(96,165,250,.14);border-color:#2b4a7a}
+  .card{background:var(--panel);border:1px solid #22242a;border-radius:12px;padding:12px 12px;margin:12px 0}
+  .pill{border:1px solid #2a2d36;border-radius:999px;padding:4px 8px;font-size:12px}
+  .mut{color:var(--mut)} .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .ok{color:var(--ok)} .bad{color:var(--bad)}
+  audio{width:100%; max-width:560px; background:#0e0f13; border-radius:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Claudio — P2P local (host-only)</h1>
+
+  <div class="row">
+    <button id="enable" class="pri">Enable audio</button>
+    <button id="join" class="pri">Join</button>
+    <button id="leave">Leave</button>
+    <button id="aggr" class="pri">Aggressive</button>
+    <button id="safe">Safe</button>
+    <span id="state" class="pill">idle</span>
+    <span class="pill">role: <b id="role">…</b></span>
+    <span class="pill">rtt: <b id="rtt">–</b></span>
+    <span class="pill">peers: <b id="peers">0</b></span>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <label>Mic
+        <select id="micSel"></select>
+      </label>
+      <label>Output
+        <select id="outSel"></select>
+      </label>
+      <button id="refresh">Refresh devices</button>
+      <button id="toggleTalk">Talkback: OFF</button>
+    </div>
+    <div class="mut small">Tips: use **wired** headphones; macOS Audio MIDI → 48 kHz; close any virtual audio apps.</div>
+  </div>
+
+  <div class="card">
+    <audio id="rx" autoplay playsinline></audio>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 6px">Log</h3>
+    <pre id="log" class="mono" style="max-height:220px;overflow:auto;margin:0"></pre>
+  </div>
+</div>
+
+<script>
+const logEl = document.getElementById('log');
+const log = (...a)=>{ logEl.textContent += a.join(' ') + '\\n'; logEl.scrollTop = logEl.scrollHeight; };
+const set = (id,v)=>document.getElementById(id).textContent = v;
+
+let ac, micStream, pc, dc, ch, rx = document.getElementById('rx');
+let talking = false;
+let currentOut = null;
+
+const channelName = 'claudio-local-p2p';
+ch = new BroadcastChannel(channelName);
+let myId = Math.random().toString(36).slice(2);
+let peerCount = 0;
+let role = (Math.random()<0.5)?'caller':'callee';
+set('role', role);
+
+function sdpTightenOpus(sdp){
+  // Try to enforce Opus, low ptime, decent bitrate, mono
+  sdp = sdp.replace(/a=fmtp:(\\d+) .*\\r\\n/g, (m,payload)=>{
+    if (!/opus/i.test(m)) return m;
+    const params = [
+      'stereo=0','sprop-stereo=0',
+      'maxplaybackrate=48000','ptime=3','minptime=3','maxptime=10',
+      'maxaveragebitrate=128000','cbr=0','useinbandfec=1','usedtx=0'
+    ].join(';');
+    return `a=fmtp:${payload} ${params}\\r\\n`;
+  });
+  // prefer 48k mono
+  sdp = sdp.replace(/a=fmtp:(\\d+) (.*)/g, (m,p,rest)=>{
+    if (!/opus/i.test(m)) return m;
+    return `a=fmtp:${p} ${rest}`;
+  });
+  return sdp;
+}
+
+function keepHostCandidates(sdp){
+  // strip srflx/relay candidates; keep only typ host
+  return sdp.split('\\r\\n').filter(l=>{
+    if (!l.startsWith('a=candidate:')) return true;
+    return / typ host /.test(l);
+  }).join('\\r\\n');
+}
+
+async function refreshDevs(){
+  const devs = await navigator.mediaDevices.enumerateDevices();
+  const micSel = document.getElementById('micSel');
+  const outSel = document.getElementById('outSel');
+  micSel.innerHTML=''; outSel.innerHTML='';
+  devs.filter(d=>d.kind==='audioinput').forEach(d=>{
+    const o = document.createElement('option'); o.value=d.deviceId; o.textContent=d.label||'mic';
+    micSel.appendChild(o);
+  });
+  devs.filter(d=>d.kind==='audiooutput').forEach(d=>{
+    const o = document.createElement('option'); o.value=d.deviceId; o.textContent=d.label||'output';
+    outSel.appendChild(o);
+  });
+}
+
+async function getMic(){
+  const micId = document.getElementById('micSel').value || undefined;
+  if (micStream) micStream.getTracks().forEach(t=>t.stop());
+  micStream = await navigator.mediaDevices.getUserMedia({
+    audio:{
+      deviceId: micId ? {exact: micId}: undefined,
+      channelCount:1, sampleRate:48000,
+      echoCancellation:false, noiseSuppression:false, autoGainControl:false
+    }
+  });
+  log('mic ready');
+}
+
+async function setOutput(){
+  const sinkId = document.getElementById('outSel').value;
+  if (rx.sinkId !== undefined && sinkId) {
+    try { await rx.setSinkId(sinkId); currentOut = sinkId; log('output =>', sinkId); }
+    catch(e){ log('setSinkId failed', e.toString()); }
+  }
+}
+
+function setState(s){ document.getElementById('state').textContent = s; }
+
+function aggressive(){
+  pc.getSenders().forEach(s=>{
+    if (s.track && s.track.kind==='audio'){
+      const p = s.getParameters();
+      p.encodings = [{ptime:3}]; // hint
+      s.setParameters(p).catch(()=>{});
+    }
+  });
+  log('aggressive set (ptime≈2.5–5ms, tiny jitter on recv)');
+}
+
+function safe(){
+  pc.getSenders().forEach(s=>{
+    if (s.track && s.track.kind==='audio'){
+      const p = s.getParameters();
+      p.encodings = [{ptime:10}];
+      s.setParameters(p).catch(()=>{});
+    }
+  });
+  log('safe set (ptime≈10ms)');
+}
+
+async function join(){
+  if (!micStream) await getMic();
+
+  pc = new RTCPeerConnection({
+    iceServers: [], // no TURN/STUN => host only
+    iceTransportPolicy: 'all',
+    bundlePolicy: 'max-bundle'
+  });
+
+  // add mic
+  const track = micStream.getAudioTracks()[0];
+  pc.addTrack(track, micStream);
+
+  // receive
+  pc.ontrack = ev=>{
+    rx.srcObject = ev.streams[0];
+    log('remote track');
+  };
+
+  // datachannel for ping
+  if (role==='caller'){
+    dc = pc.createDataChannel('ping');
+    bindDC(dc);
+  }else{
+    pc.ondatachannel = (ev)=>{ dc = ev.channel; bindDC(dc); };
+  }
+
+  // ICE: filter out non-host candidates
+  pc.onicecandidate = e=>{
+    if (!e.candidate) return;
+    if (!/ typ host /.test(e.candidate.candidate)) return; // drop srflx/relay/simhost
+    ch.postMessage({t:'cand', id:myId, cand:e.candidate});
+  };
+
+  // exchange SDP via BroadcastChannel
+  pc.onconnectionstatechange = ()=>{ setState(pc.connectionState); log('state', pc.connectionState); };
+  ch.onmessage = async ev=>{
+    const m = ev.data||{};
+    if (m.id===myId) return;
+    if (m.t==='offer' && role==='callee'){
+      await pc.setRemoteDescription(new RTCSessionDescription({type:'offer', sdp: m.sdp}));
+      const ans = await pc.createAnswer();
+      let sdp = sdpTightenOpus(ans.sdp);
+      sdp = keepHostCandidates(sdp);
+      await pc.setLocalDescription({type:'answer', sdp});
+      ch.postMessage({t:'answer', id:myId, sdp});
+      peerCount = 1; set('peers', '1');
+    }
+    if (m.t==='answer' && role==='caller'){
+      await pc.setRemoteDescription(new RTCSessionDescription({type:'answer', sdp: m.sdp}));
+      peerCount = 1; set('peers', '1');
+    }
+    if (m.t==='cand'){
+      try{ await pc.addIceCandidate(m.cand); }catch(e){ /* ignore race */ }
+    }
+  };
+
+  // make local offer (caller only)
+  if (role==='caller'){
+    const off = await pc.createOffer({offerToReceiveAudio:true, offerToReceiveVideo:false});
+    let sdp = sdpTightenOpus(off.sdp);
+    sdp = keepHostCandidates(sdp);
+    await pc.setLocalDescription({type:'offer', sdp});
+    ch.postMessage({t:'offer', id:myId, sdp});
+  }
+  setState('connecting');
+}
+
+function bindDC(dch){
+  dch.onopen = ()=>{ log('dc open'); pingLoop(); };
+  dch.onmessage = (e)=>{
+    const obj = JSON.parse(e.data||'{}');
+    if (obj.t==='ping'){ dch.send(JSON.stringify({t:'pong', ts: obj.ts})); }
+    if (obj.t==='pong'){
+      const rtt = Math.round(performance.now() - obj.ts);
+      set('rtt', rtt+' ms');
+    }
+  };
+}
+
+function pingLoop(){
+  if (!dc || dc.readyState!=='open') return;
+  dc.send(JSON.stringify({t:'ping', ts: performance.now()}));
+  setTimeout(pingLoop, 1000);
+}
+
+async function leave(){
+  try{ ch.postMessage({t:'bye', id:myId}); }catch{}
+  if (pc){ pc.getSenders().forEach(s=>s.track && s.track.stop()); pc.close(); pc=null; }
+  rx.srcObject = null; set('peers','0'); set('rtt','–'); setState('idle'); log('left');
+}
+
+document.getElementById('enable').onclick = async ()=>{
+  ac = new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
+  await refreshDevs(); await getMic(); await setOutput();
+  setState('ready'); log('audio ready', ac.sampleRate);
+};
+
+document.getElementById('join').onclick = join;
+document.getElementById('leave').onclick = leave;
+document.getElementById('refresh').onclick = async ()=>{ await refreshDevs(); await setOutput(); };
+document.getElementById('outSel').onchange = setOutput;
+
+document.getElementById('aggr').onclick = ()=>aggressive();
+document.getElementById('safe').onclick = ()=>safe();
+
+document.getElementById('toggleTalk').onclick = ()=>{
+  talking=!talking;
+  const btn = document.getElementById('toggleTalk');
+  btn.textContent = 'Talkback: ' + (talking?'ON':'OFF');
+  if (micStream) micStream.getAudioTracks().forEach(t=> t.enabled = talking);
+};
+
+// start with mic muted (press Talkback to send)
+navigator.mediaDevices.ondevicechange = refreshDevs;
+</script>
+</body>
+</html>
