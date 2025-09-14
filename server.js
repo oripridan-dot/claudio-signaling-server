@@ -1,118 +1,145 @@
-// server.js
-import express from "express";
-import http from "http";
-import cors from "cors";
-import helmet from "helmet";
-import compression from "compression";
-import morgan from "morgan";
-import { Server } from "socket.io";
+// Claudio Signaling Server (ESM)
+// Serves /public and provides Socket.IO signaling for WebRTC
+
+import express from 'express';
+import http from 'http';
+import compression from 'compression';
+import cors from 'cors';
+import { Server } from 'socket.io';
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] },
-  transports: ["websocket", "polling"]
-});
-
-app.use(helmet({ contentSecurityPolicy: false }));
+app.set('trust proxy', 1);
 app.use(compression());
 app.use(cors());
-app.use(express.json({ limit: "1mb" }));
-app.use(morgan("tiny"));
-app.use(express.static("public"));
 
-const rooms = new Map(); // roomId -> Set(socketId)
-const log = (...a) => console.log(new Date().toISOString(), ...a);
+// Static site (your UI lives in /public)
+app.use(express.static('public', {
+  setHeaders(res) {
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  }
+}));
 
-// Reorder SDP to put Opus first and ensure ptime=10
-function preferOpus(sdp) {
-  try {
-    const m = sdp.match(/^m=audio .+$/m);
-    const r = sdp.match(/^a=rtpmap:(\d+)\s+opus\/48000\/2$/m);
-    if (!m || !r) return sdp;
-    const pt = r[1];
-    const parts = m[0].split(" ");
-    const reordered = [parts[0], parts[1], parts[2], pt, ...parts.slice(3).filter(x => x !== pt)].join(" ");
-    sdp = sdp.replace(m[0], reordered);
-    if (!sdp.includes(`a=fmtp:${pt}`)) {
-      sdp += `\na=fmtp:${pt} minptime=10;useinbandfec=1;cbr=1;stereo=0;ptime=10\n`;
-    } else {
-      sdp = sdp.replace(new RegExp(`^a=fmtp:${pt}.*$`, "m"), line =>
-        line.includes("ptime=") ? line : `${line};ptime=10`
-      );
-    }
-  } catch {}
-  return sdp;
+// Health / small diag
+app.get('/diag/health', (req, res) => {
+  const rooms = Array.from(io.sockets.adapter.rooms || []).filter(([id, s]) => !io.sockets.sockets.get(id));
+  res.json({ ok: true, rooms: rooms.map(([id, set]) => ({ id, size: set.size })) });
+});
+
+// Fallback index
+app.get('/', (req, res) => {
+  res.sendFile(process.cwd() + '/public/index.html');
+});
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  // Allow your site origin (Render will set host)
+  cors: { origin: '*', methods: ['GET', 'POST'] }
+});
+
+// ---- In-memory room user list ------------------------------------------------
+/**
+ * rooms: Map<roomId, Map<socketId, {id, username, instrument}>>
+ */
+const rooms = new Map();
+
+function getUsers(roomId) {
+  const m = rooms.get(roomId);
+  if (!m) return [];
+  return Array.from(m.values());
+}
+function broadcastUsers(roomId) {
+  io.to(roomId).emit('users-updated', { users: getUsers(roomId) });
 }
 
-io.on("connection", (socket) => {
-  log("conn", socket.id);
+// ---- Socket.IO handlers ------------------------------------------------------
+io.on('connection', (sock) => {
+  // Useful metadata on the socket
+  sock.data = { username: undefined, instrument: undefined, roomId: undefined };
 
-  socket.on("join-room", ({ roomId, username, instrument }) => {
-    roomId = String(roomId || "").toUpperCase().slice(0, 12);
-    if (!roomId) return;
+  // Join a room
+  sock.on('join-room', ({ roomId, username, instrument }) => {
+    try {
+      if (!roomId) return;
+      roomId = String(roomId).toUpperCase().slice(0, 12);
+      username = (username || 'musician').slice(0, 24);
+      instrument = (instrument || 'guitar').slice(0, 24);
 
-    if (!rooms.has(roomId)) rooms.set(roomId, new Set());
-    rooms.get(roomId).add(socket.id);
-    socket.data.user = {
-      id: socket.id,
-      username: username || "user",
-      instrument: instrument || "guitar",
-      audioEnabled: false
-    };
-    socket.join(roomId);
-
-    const users = [...rooms.get(roomId)]
-      .map((id) => io.sockets.sockets.get(id)?.data.user)
-      .filter(Boolean);
-
-    socket.emit("joined-room", { roomId, users });
-    socket.to(roomId).emit("user-joined", { user: socket.data.user, users });
-  });
-
-  socket.on("toggle-audio", (flag) => {
-    if (socket.data.user) socket.data.user.audioEnabled = !!flag;
-    const roomId = [...socket.rooms].find((r) => r !== socket.id);
-    if (roomId && rooms.has(roomId)) {
-      const users = [...rooms.get(roomId)]
-        .map((id) => io.sockets.sockets.get(id)?.data.user)
-        .filter(Boolean);
-      io.to(roomId).emit("users-updated", { users });
-    }
-  });
-
-  socket.on("ping", (ts) => socket.emit("pong", ts));
-
-  // Signaling relay + SDP munge to prefer Opus low-latency
-  socket.on("signal", ({ to, roomId, data }) => {
-    if (data?.sdp?.sdp) data.sdp.sdp = preferOpus(data.sdp.sdp);
-    io.to(to).emit("signal", { from: socket.id, data });
-  });
-
-  // Simple room broadcast channel (used by self-test)
-  socket.on("roomcast", ({ roomId, type, payload }) => {
-    io.to(roomId).emit(type, { from: socket.id, payload });
-  });
-
-  socket.on("disconnect", () => {
-    for (const [roomId, set] of rooms) {
-      if (set.delete(socket.id)) {
-        const users = [...set]
-          .map((id) => io.sockets.sockets.get(id)?.data.user)
-          .filter(Boolean);
-        socket.to(roomId).emit("user-left", { id: socket.id });
-        io.to(roomId).emit("users-updated", { users });
-        if (set.size === 0) rooms.delete(roomId);
+      // Leave previous room if any
+      if (sock.data.roomId && sock.data.roomId !== roomId) {
+        const prev = rooms.get(sock.data.roomId);
+        if (prev) {
+          prev.delete(sock.id);
+          if (prev.size === 0) rooms.delete(sock.data.roomId);
+          io.to(sock.data.roomId).emit('user-left', { id: sock.id, username: sock.data.username, users: getUsers(sock.data.roomId) });
+          broadcastUsers(sock.data.roomId);
+        }
+        sock.leave(sock.data.roomId);
       }
+
+      sock.join(roomId);
+      sock.data.roomId = roomId;
+      sock.data.username = username;
+      sock.data.instrument = instrument;
+
+      if (!rooms.has(roomId)) rooms.set(roomId, new Map());
+      rooms.get(roomId).set(sock.id, { id: sock.id, username, instrument });
+
+      // Notify this client
+      sock.emit('joined-room', { roomId, users: getUsers(roomId) });
+
+      // Notify others
+      sock.to(roomId).emit('user-joined', { user: { id: sock.id, username, instrument }, users: getUsers(roomId) });
+      broadcastUsers(roomId);
+    } catch (e) {
+      sock.emit('error', { message: 'join-room failed', details: String(e?.message || e) });
     }
+  });
+
+  // Simple room chat broadcast (UI listens to both 'roomcast' and legacy 'chat-message')
+  sock.on('roomcast', ({ roomId, message }) => {
+    if (!roomId || !message) return;
+    const username = sock.data?.username || 'user';
+    io.to(roomId).emit('roomcast', { username, message: String(message).slice(0, 240) });
+  });
+
+  // Legacy chat event compatibility (optional)
+  sock.on('chat-message', ({ roomId, message }) => {
+    if (!roomId || !message) return;
+    const username = sock.data?.username || 'user';
+    io.to(roomId).emit('chat-message', { username, message: String(message).slice(0, 240) });
+  });
+
+  // WebRTC signaling relay
+  sock.on('signal', ({ to, roomId, data }) => {
+    if (!to || !roomId || !data) return;
+    // Only relay inside the same room
+    const target = io.sockets.sockets.get(to);
+    if (target && target.rooms.has(roomId)) {
+      target.emit('signal', { from: sock.id, data });
+    }
+  });
+
+  // Latency test
+  sock.on('ping', (ts) => {
+    sock.emit('pong', ts);
+  });
+
+  // Disconnect cleanup
+  sock.on('disconnect', () => {
+    const roomId = sock.data.roomId;
+    if (!roomId) return;
+    const m = rooms.get(roomId);
+    if (!m) return;
+    m.delete(sock.id);
+    if (m.size === 0) rooms.delete(roomId);
+    sock.to(roomId).emit('user-left', { id: sock.id, username: sock.data.username, users: getUsers(roomId) });
+    broadcastUsers(roomId);
   });
 });
 
-app.get("/diag/health", (_req, res) => {
-  res.json({ ok: true, rooms: [...rooms.entries()].map(([k, v]) => [k, v.size]) });
-);
-
+// ---- Start -------------------------------------------------------------------
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => log("listening", PORT));
-{ urls: 'turn:openrelay.metered.ca:443?transport=tcp', username:'openrelayproject', credential:'openrelayproject' }
-
+server.listen(PORT, () => {
+  console.log(`claudio-signaling-server listening on :${PORT}`);
+});
