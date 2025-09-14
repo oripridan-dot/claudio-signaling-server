@@ -110,7 +110,6 @@ io.on("connection", (socket) => {
 
 app.get("/diag/health", (_req, res) => {
   res.json({ ok: true, rooms: [...rooms.entries()].map(([k, v]) => [k, v.size]) });
-});
 app.get(["/p2p-lite", "/p2p-lite.html"], (_req, res) =>
   res.sendFile(path.join(PUBLIC_DIR, "p2p-lite.html"))
 );
