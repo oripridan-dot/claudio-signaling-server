@@ -114,3 +114,5 @@ app.get("/diag/health", (_req, res) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => log("listening", PORT));
+{ urls: 'turn:openrelay.metered.ca:443?transport=tcp', username:'openrelayproject', credential:'openrelayproject' }
+
